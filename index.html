@@ -3,51 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schedule & Task App (Fixed)</title>
+  <title>Schedule & Task App (予実管理版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <style>
-    /* スタイル設定 */
     body { margin: 0; padding: 0; overflow: hidden; font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; background-color: #F4F5F7; }
     
     /* ログイン画面 */
-    #login-screen {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: #4F46E5; display: flex; flex-direction: column;
-      justify-content: center; align-items: center; z-index: 9999;
-    }
-    .login-box {
-      background: white; padding: 40px; border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-align: center;
-    }
+    #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #4F46E5; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; }
+    .login-box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-align: center; }
     .login-box h2 { margin-top: 0; color: #1F2937; }
-    .login-box input {
-      padding: 10px; font-size: 16px; width: 200px; margin-bottom: 20px;
-      border: 1px solid #E5E7EB; border-radius: 6px; display: block; margin: 10px auto 20px;
-    }
-    .login-box button {
-      padding: 10px 30px; background: #10B981; color: white; border: none;
-      border-radius: 6px; font-size: 16px; cursor: pointer; transition: 0.2s;
-    }
+    .login-box input { padding: 10px; font-size: 16px; width: 200px; margin-bottom: 20px; border: 1px solid #E5E7EB; border-radius: 6px; display: block; margin: 10px auto 20px; }
+    .login-box button { padding: 10px 30px; background: #10B981; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: 0.2s; }
     .login-box button:hover { background: #059669; }
     .error-msg { color: red; font-size: 14px; height: 20px; margin-bottom: 10px; }
-    .reset-link { margin-top: 20px; font-size: 12px; color: #999; text-decoration: underline; cursor: pointer; }
+    .reset-link { margin-top: 20px; font-size: 12px; color: #ccc; text-decoration: underline; cursor: pointer; }
 
     /* モーダル */
-    #modal-overlay {
-      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
-    }
-    .modal-content {
-      background: white; width: 400px; padding: 20px; border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.2); position: relative;
-    }
+    #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+    .modal-content { background: white; width: 400px; padding: 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); position: relative; }
     .modal-header { height: 10px; border-radius: 12px 12px 0 0; margin: -20px -20px 20px -20px; background: #ccc; transition: background 0.3s; }
     .form-group { margin-bottom: 15px; }
     .form-group label { display: block; font-size: 12px; color: #6B7280; margin-bottom: 5px; }
-    .form-group input, .form-group textarea {
-      width: 100%; padding: 8px; border: 1px solid #E5E7EB; border-radius: 6px;
-      font-size: 14px; box-sizing: border-box; font-family: inherit;
-    }
+    .form-group input, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #E5E7EB; border-radius: 6px; font-size: 14px; box-sizing: border-box; font-family: inherit; }
     .form-group textarea { height: 60px; resize: none; }
     .time-inputs { display: flex; align-items: center; gap: 10px; }
     .color-picker { display: flex; gap: 8px; margin-top: 5px; }
@@ -70,7 +47,7 @@
       <div id="login-error" class="error-msg"></div>
       <input type="password" id="password-input" placeholder="Password">
       <button onclick="checkLogin()">Login</button>
-      <div class="reset-link" onclick="resetAllData()">※画面がおかしい場合はここをクリックしてリセット</div>
+      <div class="reset-link" onclick="resetAllData()">画面がおかしい場合はリセット</div>
     </div>
   </div>
 
@@ -114,7 +91,38 @@
   </div>
 
 <script>
-// --- グローバル設定 ---
+// --- クラス定義 (最優先) ---
+class Button {
+  constructor(l, x, y, w, h, action, alignRight=false, color='#E5E7EB') {
+    this.label = l; this.x = x; this.y = y; this.w = w; this.h = h;
+    this.action = action; this.alignRight = alignRight; this.color = color;
+  }
+}
+
+class Event {
+  constructor(dateStr, start, duration, title, colorIdx, type=0) {
+    this.dateStr = dateStr; 
+    this.start = start; 
+    this.duration = duration; 
+    this.title = title; 
+    this.colorIdx = colorIdx;
+    this.memo = "";
+    this.type = type; // 0:Plan, 1:Actual
+  }
+}
+
+class Task {
+  constructor(title, deadline, memo, colorIdx) {
+    this.title = title; 
+    this.deadline = deadline; 
+    this.memo = memo; 
+    this.colorIdx = colorIdx;
+    this.completedDate = "";
+    this.status = 0; // 0:Doing, 1:Backlog, 2:Done
+  }
+}
+
+// --- グローバル定数 ---
 const CONTROL_H = 60;
 const DATE_H = 50;
 const SIDEBAR_W = 70;
@@ -136,6 +144,7 @@ const COL_DONE_BG = '#E5E7EB';
 const EVENT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#6B7280'];
 const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6'];
 
+// --- データ変数 ---
 let events = [];
 let backlogTasks = [];
 let doingTasks = [];
@@ -148,10 +157,11 @@ let taskScrollY = 0;
 let currentMode = 0; // 0:Calendar, 1:Task
 let isLoggedIn = false;
 
+// --- 操作状態 ---
 let selectedItem = null;
 let creatingEvent = null;
 let draggingItem = null;
-let dragAction = 0;
+let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
 let dragOffsetTime = 0;
 let taskDragOffsetY = 0;
 let isTaskDragging = false;
@@ -170,9 +180,8 @@ function checkLogin() {
 }
 
 function resetAllData() {
-  if(confirm("本当に全てのデータを削除してリセットしますか？")) {
+  if(confirm("全てのデータを削除してリセットしますか？")) {
     localStorage.clear();
-    alert("リセットしました。ページを再読み込みします。");
     location.reload();
   }
 }
@@ -182,8 +191,8 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   if (!isLoggedIn) noLoop();
   
-  // ★重要修正: フォント設定をWeb標準の方法に変更（ここが原因で止まっていました）
-  textFont("Hiragino Kaku Gothic ProN, Meiryo, sans-serif");
+  // ★重要: フォントエラー回避のため標準フォント指定
+  textFont('sans-serif');
   
   viewStartDate = new Date();
   viewStartDate.setHours(0,0,0,0);
@@ -208,28 +217,31 @@ function draw() {
   if (currentMode === 0) {
     // --- Calendar Mode ---
     let contentH = height - CONTROL_H - DATE_H;
+    
+    // Header
     push();
     translate(0, CONTROL_H);
     drawDateHeader();
     translate(0, DATE_H);
+    
+    // Grid & Events
     push();
     translate(0, scrollY);
-    
     drawTimeGrid();
     drawEvents();
     
+    // Dragging New Event
     if (dragAction === 1 && creatingEvent) {
       let offset = getDayOffset(new Date(creatingEvent.dateStr));
       if (offset >= 0 && offset < visibleDays) {
-        // 新規作成中の描画（常に左側Planとして描画）
-        drawEventRect(creatingEvent, offset, isPastOrToday(new Date(creatingEvent.dateStr)));
+        let isSplit = isPastOrToday(new Date(creatingEvent.dateStr));
+        drawEventRect(creatingEvent, offset, isSplit);
       }
     }
-    
     pop(); 
     pop();
     
-    // ヘッダー再描画（マスク代わり）
+    // マスク用ヘッダー再描画
     drawControlBar(); 
 
   } else {
@@ -242,11 +254,13 @@ function draw() {
   }
 }
 
-// --- 描画関数 ---
+// --- 描画ロジック ---
+
 function drawControlBar() {
   noStroke(); fill(COL_WHITE); rect(0, 0, width, CONTROL_H);
   fill(0, 20); rect(0, CONTROL_H, width, 1);
-  fill(COL_TEXT_MAIN); noStroke(); textAlign(CENTER, CENTER); textSize(18); textStyle(BOLD);
+  fill(COL_TEXT_MAIN); textAlign(CENTER, CENTER); textSize(18); textStyle(BOLD);
+  
   if (currentMode === 0) {
     let d = new Date(viewStartDate);
     text(`${d.getFullYear()}年 ${d.getMonth()+1}月`, width/2, CONTROL_H/2);
@@ -272,7 +286,9 @@ function setupButtons() {
   addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
   addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
 }
-function addButton(label, x, y, w, h, action, alignRight=false, color='#E5E7EB') { buttons.push({label, x, y, w, h, action, alignRight, color}); }
+function addButton(l, x, y, w, h, act, ar=false, col='#E5E7EB') {
+  buttons.push(new Button(l, x, y, w, h, act, ar, col));
+}
 function drawButtons() {
   textSize(12);
   buttons.forEach(b => {
@@ -303,18 +319,27 @@ function drawDateHeader() {
   fill(COL_BG); rect(0, 0, SIDEBAR_W, DATE_H);
 }
 
+// ★ 予実管理対応 TimeGrid
 function drawTimeGrid() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
   let today = new Date(); today.setHours(0,0,0,0);
+  
   noStroke();
   for (let i = 0; i < visibleDays; i++) {
     let x = SIDEBAR_W + i * colW;
-    let isSplit = d <= today;
+    let isSplit = d <= today; // 今日・過去は分割
+    
     if (isSameDate(d, today)) { fill(COL_TODAY_BG); rect(x, 0, colW, 24 * HOUR_H); }
-    if (isSplit) { stroke(COL_LINE); line(x + colW/2, 0, x + colW/2, 24 * HOUR_H); }
+    
+    // 分割線
+    if (isSplit) {
+      stroke(COL_LINE);
+      line(x + colW/2, 0, x + colW/2, 24 * HOUR_H);
+    }
     d.setDate(d.getDate() + 1);
   }
+  
   textAlign(RIGHT, CENTER); textSize(11); fill(COL_TEXT_SUB);
   for (let i = 0; i <= 24; i++) {
     let y = i * HOUR_H; stroke(COL_LINE); line(SIDEBAR_W, y, width, y); noStroke(); text(`${i}:00`, SIDEBAR_W - 10, y);
@@ -323,11 +348,13 @@ function drawTimeGrid() {
   stroke(COL_LINE); for (let i = 0; i <= visibleDays; i++) line(SIDEBAR_W + i * colW, 0, SIDEBAR_W + i * colW, 24 * HOUR_H);
 }
 
+// ★ 予実管理対応 Event描画
 function drawEvents() {
   let today = new Date(); today.setHours(0,0,0,0);
   for (let e of events) {
     let d = new Date(e.dateStr); d.setHours(0,0,0,0);
     let offset = getDayOffset(d);
+    
     if (offset >= 0 && offset < visibleDays) {
       let isSplit = d <= today;
       drawEventRect(e, offset, isSplit);
@@ -339,10 +366,11 @@ function drawEventRect(e, offset, isSplit) {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let x = SIDEBAR_W + offset * colW;
   let w = colW;
-  // type 0:Plan, 1:Actual
+  
+  // 予実分割計算
   if (isSplit) {
     w = colW / 2;
-    if (e.type === 1) x += w;
+    if (e.type === 1) x += w; // Actualは右側
   } else {
     if (e.type === 1) return; // 未来の実績は非表示
   }
@@ -352,16 +380,24 @@ function drawEventRect(e, offset, isSplit) {
   let pad = 4;
   
   noStroke(); fill(0, 20); rect(x+pad+2, y+2, w-pad*2, h, 4);
-  fill(EVENT_COLORS[e.colorIdx]); 
+  
+  fill(EVENT_COLORS[e.colorIdx]);
+  // 実績は少し見た目を変える（枠線）
   if (e.type === 1) { stroke(255, 150); strokeWeight(2); } else { noStroke(); }
-  rect(x+pad, y, w-pad*2, h, 4); noStroke(); strokeWeight(1);
+  
+  rect(x+pad, y, w-pad*2, h, 4); 
+  noStroke(); strokeWeight(1);
   fill(0, 50); rect(x+pad, y, 5, h, 4, 0, 0, 4);
+  
   if (e === selectedItem) { noFill(); stroke(0); strokeWeight(2); rect(x+pad, y, w-pad*2, h, 4); strokeWeight(1); noStroke(); }
+  
   fill(255); textAlign(LEFT, TOP);
+  // クリップ代わりの簡易表示
   if (h > 20) { textSize(11); textStyle(BOLD); text(e.title, x+pad+8, y+4); }
-  if (h > 40) { textSize(10); textStyle(NORMAL); text(`${formatTime(e.start)}-${formatTime(e.start+e.duration)}`, x+pad+8, y+20); }
+  if (h > 40) { textSize(10); textStyle(NORMAL); text(`${formatTime(e.start)}`, x+pad+8, y+20); }
 }
 
+// --- タスク描画 ---
 function drawTaskList() {
   let fullH = height - CONTROL_H; let colW = width / 3;
   noStroke();
@@ -369,20 +405,25 @@ function drawTaskList() {
   fill(COL_BACKLOG_BG); rect(colW, 0, colW, fullH);
   fill(COL_DONE_BG);    rect(colW*2, 0, colW, fullH);
   stroke(COL_LINE); strokeWeight(2); line(colW, 0, colW, fullH); line(colW*2, 0, colW*2, fullH); strokeWeight(1);
+  
   fill(COL_TEXT_SUB); textAlign(CENTER, TOP); textSize(14); textStyle(BOLD);
   text(`現在取り組んでいること (${doingTasks.length})`, colW/2, 10);
   text(`今後増えること (${backlogTasks.length})`, colW*1.5, 10);
   text(`終わったもの (${doneTasks.length})`, colW*2.5, 10);
+  
   push(); translate(0, taskScrollY);
   let itemH = 60; let margin = 40; let gap = 10; let cardW = colW - 30;
+  
   drawTaskItems(doingTasks, 15, margin, cardW, itemH, gap);
   drawTaskItems(backlogTasks, colW + 15, margin, cardW, itemH, gap);
   drawTaskItems(doneTasks, colW*2 + 15, margin, cardW, itemH, gap, true);
   pop();
+  
   if (isTaskDragging && draggingItem) {
     drawTaskCard(draggingItem, mouseX - cardW/2, mouseY - CONTROL_H + taskDragOffsetY, cardW, itemH);
   }
 }
+
 function drawTaskItems(list, x, startY, w, h, gap, showDeleteDate=false) {
   for (let i = 0; i < list.length; i++) {
     let t = list[i];
@@ -396,6 +437,7 @@ function drawTaskItems(list, x, startY, w, h, gap, showDeleteDate=false) {
     }
   }
 }
+
 function drawTaskCard(t, x, y, w, h) {
   noStroke(); fill(0, 10); rect(x+3, y+3, w, h, 8); fill(255); rect(x, y, w, h, 8);
   fill(TASK_COLORS[t.colorIdx]); rect(x, y, 8, h, 8, 0, 0, 8);
@@ -404,38 +446,57 @@ function drawTaskCard(t, x, y, w, h) {
   fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL); text(`締切: ${t.deadline}`, x+20, y+h/2+10);
 }
 
-// --- 入力イベント & クラス ---
-class Button { constructor(l, x, y, w, h, action, alignRight=false, color='#E5E7EB') { this.label=l; this.x=x; this.y=y; this.w=w; this.h=h; this.action=action; this.alignRight=alignRight; this.color=color; } }
-class Event { constructor(dateStr, start, duration, title, colorIdx, type=0) { this.dateStr=dateStr; this.start=start; this.duration=duration; this.title=title; this.colorIdx=colorIdx; this.memo=""; this.type=type; } }
-class Task { constructor(title, deadline, memo, colorIdx) { this.title=title; this.deadline=deadline; this.memo=memo; this.colorIdx=colorIdx; this.completedDate=""; this.status=0; } }
-
+// --- 入力イベント ---
 function setupKeyEvents() {
-  document.getElementById('password-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') checkLogin(); });
+  document.getElementById('password-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') checkLogin();
+  });
   const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline'];
-  inputs.forEach(id => { document.getElementById(id).addEventListener('keydown', function(e) { if (e.key === 'Enter') saveItem(); }); });
-  document.getElementById('input-deadline').addEventListener('keydown', function(e) { if (e.key === 'ArrowUp') { changeDate(1); e.preventDefault(); } else if (e.key === 'ArrowDown') { changeDate(-1); e.preventDefault(); } });
+  inputs.forEach(id => {
+    document.getElementById(id).addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') saveItem();
+    });
+  });
+  document.getElementById('input-deadline').addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowUp') { changeDate(1); e.preventDefault(); } 
+    else if (e.key === 'ArrowDown') { changeDate(-1); e.preventDefault(); }
+  });
 }
-function changeDate(delta) { let input = document.getElementById('input-deadline'); if (input.value) { let d = new Date(input.value); d.setDate(d.getDate() + delta); input.value = formatDateISO(d); } }
+
+function changeDate(delta) {
+  let input = document.getElementById('input-deadline');
+  if (input.value) {
+    let d = new Date(input.value); d.setDate(d.getDate() + delta);
+    input.value = formatDateISO(d);
+  }
+}
 
 function doubleClicked() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (mouseY < CONTROL_H) return;
+
   if (currentMode === 0) {
     let colW = (width - SIDEBAR_W) / visibleDays;
     let today = new Date(); today.setHours(0,0,0,0);
+    
     for (let i = events.length - 1; i >= 0; i--) {
       let e = events[i];
       let d = new Date(e.dateStr); d.setHours(0,0,0,0);
       let offset = getDayOffset(d);
       if (offset < 0 || offset >= visibleDays) continue;
+      
       let isSplit = d <= today;
       let w = isSplit ? colW / 2 : colW;
       let x = SIDEBAR_W + offset * colW;
       if (isSplit && e.type === 1) x += w;
       if (!isSplit && e.type === 1) continue;
+      
       let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
       let h = e.duration * HOUR_H;
-      if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) { openModal(e, 'event'); return false; }
+      
+      if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) {
+        openModal(e, 'event'); return false;
+      }
     }
   } else {
     let colW = width / 3; let itemH = 60; let margin = 40; let gap = 10;
@@ -443,7 +504,9 @@ function doubleClicked() {
     let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
     let localY = mouseY - CONTROL_H - taskScrollY - margin;
     let index = Math.floor(localY / (itemH + gap));
-    if (index >= 0 && index < targetList.length) { openModal(targetList[index], 'task'); return false; }
+    if (index >= 0 && index < targetList.length) {
+      openModal(targetList[index], 'task'); return false;
+    }
   }
 }
 
@@ -465,11 +528,14 @@ function mousePressed() {
     let timeVal = snapTo15Min(globalY / HOUR_H);
     let colW = (width - SIDEBAR_W) / visibleDays;
     let dayIndex = Math.floor((mouseX - SIDEBAR_W) / colW);
+    
     let d = new Date(viewStartDate); d.setDate(d.getDate() + dayIndex); d.setHours(0,0,0,0);
     let today = new Date(); today.setHours(0,0,0,0);
     let isSplit = d <= today;
+    
     let clickedType = 0; 
     if (isSplit) { let relX = (mouseX - SIDEBAR_W) % colW; if (relX > colW/2) clickedType = 1; }
+    
     let clicked = null;
     for (let i = events.length - 1; i >= 0; i--) {
       let e = events[i];
@@ -478,10 +544,12 @@ function mousePressed() {
       if (offset < 0 || offset >= visibleDays) continue;
       if (isSplit && e.type !== clickedType) continue;
       if (!isSplit && e.type === 1) continue;
+      
       let w = isSplit ? colW/2 : colW;
       let x = SIDEBAR_W + offset * colW + (e.type===1 && isSplit ? w : 0);
       let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
       let h = e.duration * HOUR_H;
+      
       if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) {
         clicked = e;
         let relY = mouseY - y;
@@ -490,6 +558,7 @@ function mousePressed() {
         break;
       }
     }
+    
     if (clicked) { selectedItem = clicked; } 
     else {
       if (dayIndex >= 0 && dayIndex < visibleDays && timeVal >= 0 && timeVal < 24) {
@@ -504,6 +573,7 @@ function mousePressed() {
     let index = Math.floor(localY / (itemH + gap));
     let zone = Math.floor(mouseX / colW);
     let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
+    
     if (index >= 0 && index < targetList.length) {
       selectedItem = targetList[index];
       draggingItem = selectedItem; isTaskDragging = true;
@@ -528,6 +598,7 @@ function mouseDragged() {
     let dayIndex = Math.floor((mouseX - SIDEBAR_W) / colW);
     if (dayIndex < 0) dayIndex = 0; if (dayIndex >= visibleDays) dayIndex = visibleDays - 1;
     let d = new Date(viewStartDate); d.setDate(d.getDate() + dayIndex);
+    
     if (dragAction === 1 && creatingEvent) {
       let dur = snapTime - creatingEvent.start; if (dur < 0.25) dur = 0.25; creatingEvent.duration = dur;
     } else if (selectedItem) {
@@ -550,6 +621,7 @@ function mouseReleased() {
   if (currentMode === 0) {
     if (dragAction === 1 && creatingEvent) {
       events.push(creatingEvent); selectedItem = creatingEvent;
+      // ★自動コピー処理 (Plan->Actual)
       let d = new Date(creatingEvent.dateStr); d.setHours(0,0,0,0);
       let today = new Date(); today.setHours(0,0,0,0);
       if (creatingEvent.type === 0 && d <= today) {
@@ -566,7 +638,8 @@ function mouseReleased() {
       if (dropZone === 0) { doingTasks.push(draggingItem); draggingItem.completedDate = ""; }
       else if (dropZone === 1) { backlogTasks.push(draggingItem); draggingItem.completedDate = ""; }
       else { doneTasks.unshift(draggingItem); if (!draggingItem.completedDate) draggingItem.completedDate = formatDateISO(new Date()); }
-      openModal(draggingItem, 'task'); isTaskDragging = false; draggingItem = null; saveData();
+      openModal(draggingItem, 'task');
+      isTaskDragging = false; draggingItem = null; saveData();
     }
   }
 }
@@ -589,17 +662,20 @@ function mouseWheel(event) {
   }
 }
 
-// --- Common Utils ---
+// --- Utils ---
 function openModal(item, type) {
   selectedItem = item;
   let modal = document.getElementById('modal-overlay');
   let headerBar = document.getElementById('modal-header-bar');
   let colorPicker = document.getElementById('color-picker');
   modal.style.display = 'flex';
+  
   document.getElementById('input-title').value = item.title;
   document.getElementById('input-memo').value = item.memo;
+  
   colorPicker.innerHTML = '';
   let colors = (type === 'event') ? EVENT_COLORS : TASK_COLORS;
+  
   colors.forEach((c, idx) => {
     let div = document.createElement('div');
     div.className = 'color-circle' + (idx === item.colorIdx ? ' selected' : '');
@@ -614,9 +690,9 @@ function openModal(item, type) {
     colorPicker.appendChild(div);
   });
   headerBar.style.background = colors[item.colorIdx];
+
   if (type === 'event') {
-    let label = document.getElementById('label-title');
-    label.innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
+    document.getElementById('label-title').innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
     document.getElementById('group-time').style.display = 'block';
     document.getElementById('group-deadline').style.display = 'none';
     document.getElementById('input-start').value = formatTimeInput(item.start);
@@ -628,6 +704,7 @@ function openModal(item, type) {
     document.getElementById('input-deadline').value = item.deadline;
   }
 }
+
 function saveItem() {
   if (!selectedItem) return;
   selectedItem.title = document.getElementById('input-title').value;
@@ -636,16 +713,21 @@ function saveItem() {
     let s = parseTimeInput(document.getElementById('input-start').value);
     let e = parseTimeInput(document.getElementById('input-end').value);
     if (s >= 0 && e > s) { selectedItem.start = s; selectedItem.duration = e - s; }
-  } else { selectedItem.deadline = document.getElementById('input-deadline').value; }
+  } else {
+    selectedItem.deadline = document.getElementById('input-deadline').value;
+  }
   saveData(); closeModal();
 }
+
 function deleteItem() {
   if (!selectedItem) return;
-  if (currentMode === 0) { events = events.filter(e => e !== selectedItem); } else { removeFromAllLists(selectedItem); }
+  if (currentMode === 0) { events = events.filter(e => e !== selectedItem); }
+  else { removeFromAllLists(selectedItem); }
   selectedItem = null; saveData(); closeModal();
 }
 function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
 function toggleMode() { currentMode = (currentMode === 0) ? 1 : 0; }
+
 function loadData() {
   let svE = localStorage.getItem('calendar_events'); 
   if(svE) {
@@ -654,7 +736,7 @@ function loadData() {
       let nev = new Event(e.dateStr, e.start||0, e.duration||1, e.title||"", e.colorIdx||0, e.type !== undefined ? e.type : 0);
       nev.memo = e.memo || ""; return nev;
     });
-    // Sync Actuals for today/past
+    // 自動同期: 過去/今日のPlanでActualがない場合、自動生成
     let today = new Date(); today.setHours(0,0,0,0);
     let actualKeys = new Set();
     events.filter(e => e.type === 1).forEach(e => actualKeys.add(e.dateStr + "_" + e.title));
@@ -673,9 +755,11 @@ function loadData() {
     });
     events = events.concat(newActuals);
   }
+  
   let svB = localStorage.getItem('task_backlog'); if(svB) backlogTasks = JSON.parse(svB).map(t => Object.assign(new Task(), t));
   let svD = localStorage.getItem('task_doing'); if(svD) doingTasks = JSON.parse(svD).map(t => Object.assign(new Task(), t));
   let svF = localStorage.getItem('task_done'); if(svF) doneTasks = JSON.parse(svF).map(t => Object.assign(new Task(), t));
+  
   let oneWeekAgo = new Date(); oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   doneTasks = doneTasks.filter(t => { if (!t.completedDate) return true; return new Date(t.completedDate) >= oneWeekAgo; });
 }
@@ -685,6 +769,7 @@ function saveData() {
   localStorage.setItem('task_doing', JSON.stringify(doingTasks));
   localStorage.setItem('task_done', JSON.stringify(doneTasks));
 }
+
 function moveDate(days) { viewStartDate.setDate(viewStartDate.getDate() + days); }
 function getDayOffset(date) { let diff = date - viewStartDate; return Math.floor(diff / (1000 * 60 * 60 * 24)); }
 function isSameDate(d1, d2) { return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate(); }
@@ -696,6 +781,8 @@ function parseTimeInput(str) { let parts = str.split(':'); if (parts.length === 
 function snapTo15Min(val) { return Math.round(val / 0.25) * 0.25; }
 function removeFromAllLists(t) { backlogTasks = backlogTasks.filter(x => x !== t); doingTasks = doingTasks.filter(x => x !== t); doneTasks = doneTasks.filter(x => x !== t); }
 function getDayName(i) { return ['日','月','火','水','木','金','土'][i]; }
+function updateCursor() { if (showModal) { cursor(ARROW); return; } if (currentMode === 0) { if (dragAction === 2) cursor(MOVE); else if (dragAction >= 3) cursor(HAND); else cursor(ARROW); } else { cursor(isTaskDragging ? MOVE : ARROW); } }
+
 function exportICS() {
   let calContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//My Web App//EN\n";
   events.forEach(e => {
