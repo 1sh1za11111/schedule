@@ -1018,6 +1018,57 @@ function parseICSDate(str) {
   return { d: new Date(y,m,d), h: h, m: min };
 }
 
+function doubleClicked() {
+  // モーダルが開いているときは何もしない
+  if (document.getElementById('modal-overlay').style.display === 'flex') return;
+  // エリア外なら何もしない
+  if (mouseY < CONTROL_H) return;
+
+  if (currentMode === 0) {
+    // --- カレンダーモード ---
+    // マウス位置にあるイベントを探す
+    let colW = (width - SIDEBAR_W) / visibleDays;
+    
+    // 逆順で判定（手前優先）
+    for (let i = events.length - 1; i >= 0; i--) {
+      let e = events[i];
+      let d = new Date(e.dateStr);
+      let offset = getDayOffset(d);
+      
+      // 表示範囲外ならスキップ
+      if (offset < 0 || offset >= visibleDays) continue;
+      
+      let x = SIDEBAR_W + offset * colW;
+      let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
+      let h = e.duration * HOUR_H;
+      
+      // ヒット判定
+      if (mouseX >= x && mouseX <= x + colW && mouseY >= y && mouseY <= y + h) {
+        openModal(e, 'event'); // 詳細画面を開く
+        return false; // ブラウザ標準のダブルクリック動作（テキスト選択など）を防ぐ
+      }
+    }
+  } else {
+    // --- タスクモード ---
+    let colW = width / 3;
+    let itemH = 60; let margin = 40; let gap = 10;
+    
+    // ゾーン判定 (0:Doing, 1:Backlog, 2:Done)
+    let zone = Math.floor(mouseX / colW);
+    let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
+    
+    // Y座標からインデックスを計算
+    let localY = mouseY - CONTROL_H - taskScrollY - margin;
+    let index = Math.floor(localY / (itemH + gap));
+    
+    // ヒット判定
+    if (index >= 0 && index < targetList.length) {
+      let task = targetList[index];
+      openModal(task, 'task'); // 詳細画面を開く
+      return false;
+    }
+  }
+}
 </script>
 </body>
 </html>
