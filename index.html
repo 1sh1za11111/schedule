@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schedule & Task App</title>
+  <title>Schedule & Task App (予実管理版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <style>
-    /* 全体のスタイル設定 */
+    /* スタイル設定 */
     body { margin: 0; padding: 0; overflow: hidden; font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; background-color: #F4F5F7; }
     
     /* ログイン画面 */
@@ -31,7 +31,7 @@
     .login-box button:hover { background: #059669; }
     .error-msg { color: red; font-size: 14px; height: 20px; margin-bottom: 10px; }
 
-    /* モーダル (詳細編集画面) */
+    /* モーダル */
     #modal-overlay {
       display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
@@ -40,7 +40,7 @@
       background: white; width: 400px; padding: 20px; border-radius: 12px;
       box-shadow: 0 10px 25px rgba(0,0,0,0.2); position: relative;
     }
-    .modal-header { height: 10px; border-radius: 12px 12px 0 0; margin: -20px -20px 20px -20px; background: #ccc; }
+    .modal-header { height: 10px; border-radius: 12px 12px 0 0; margin: -20px -20px 20px -20px; background: #ccc; transition: background 0.3s; }
     .form-group { margin-bottom: 15px; }
     .form-group label { display: block; font-size: 12px; color: #6B7280; margin-bottom: 5px; }
     .form-group input, .form-group textarea {
@@ -50,15 +50,14 @@
     .form-group textarea { height: 60px; resize: none; }
     .time-inputs { display: flex; align-items: center; gap: 10px; }
     .color-picker { display: flex; gap: 8px; margin-top: 5px; }
-    .color-circle { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
-    .color-circle.selected { border-color: #1F2937; }
+    .color-circle { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s; }
+    .color-circle:hover { transform: scale(1.1); }
+    .color-circle.selected { border-color: #1F2937; box-shadow: 0 0 0 2px rgba(0,0,0,0.1); }
     .modal-actions { display: flex; justify-content: space-between; margin-top: 20px; }
     .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
     .btn-save { background: #4F46E5; color: white; }
     .btn-close { background: #E5E7EB; color: #1F2937; }
     .btn-delete { background: #FEE2E2; color: #EF4444; }
-
-    /* ファイル入力 (隠し) */
     #file-input { display: none; }
   </style>
 </head>
@@ -78,12 +77,10 @@
   <div id="modal-overlay">
     <div class="modal-content">
       <div id="modal-header-bar" class="modal-header"></div>
-      
       <div class="form-group">
-        <label>タイトル</label>
+        <label id="label-title">タイトル</label>
         <input type="text" id="input-title">
       </div>
-
       <div class="form-group" id="group-time">
         <label>時間 (例: 13:00)</label>
         <div class="time-inputs">
@@ -93,21 +90,17 @@
         </div>
       </div>
       <div class="form-group" id="group-deadline" style="display:none;">
-        <label>締切日</label>
+        <label>締切日 (↑↓キーで変更可)</label>
         <input type="date" id="input-deadline">
       </div>
-
       <div class="form-group">
         <label>カラー</label>
-        <div class="color-picker" id="color-picker">
-          </div>
+        <div class="color-picker" id="color-picker"></div>
       </div>
-
       <div class="form-group">
         <label>詳細メモ</label>
         <textarea id="input-memo"></textarea>
       </div>
-
       <div class="modal-actions">
         <button class="btn btn-delete" onclick="deleteItem()">削除</button>
         <div>
@@ -126,7 +119,6 @@ const SIDEBAR_W = 70;
 const HOUR_H = 80;
 const RESIZE_MARGIN = 10;
 
-// カラー
 const COL_BG = '#F4F5F7';
 const COL_WHITE = '#FFFFFF';
 const COL_TEXT_MAIN = '#1F2937';
@@ -135,22 +127,18 @@ const COL_LINE = '#E5E7EB';
 const COL_ACCENT = '#4F46E5';
 const COL_TODAY_BG = '#EEF2FF';
 
-// 3ゾーン背景
-const COL_DOING_BG = '#EEF2FF';   // 青っぽく
-const COL_BACKLOG_BG = '#F3F4F6'; // グレー
-const COL_DONE_BG = '#E5E7EB';    // 濃いグレー
+const COL_DOING_BG = '#EEF2FF';
+const COL_BACKLOG_BG = '#F3F4F6';
+const COL_DONE_BG = '#E5E7EB';
 
-// カラーパレット
 const EVENT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#6B7280'];
-const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6']; // 緊急(赤) -> 完了(青)
+const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6'];
 
-// データ
 let events = [];
 let backlogTasks = [];
 let doingTasks = [];
 let doneTasks = [];
 
-// 状態
 let viewStartDate;
 let visibleDays = 4;
 let scrollY = -600;
@@ -158,125 +146,82 @@ let taskScrollY = 0;
 let currentMode = 0; // 0:Calendar, 1:Task
 let isLoggedIn = false;
 
-// UI操作用
-let selectedItem = null; // Event or Task
+let selectedItem = null;
 let creatingEvent = null;
 let draggingItem = null;
-let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
+let dragAction = 0;
 let dragOffsetTime = 0;
 let taskDragOffsetY = 0;
 let isTaskDragging = false;
 
-// ---------------------------------------------------------
-// ログイン処理
-// ---------------------------------------------------------
+// --- ログイン処理 ---
 function checkLogin() {
   const pass = document.getElementById('password-input').value;
   if (pass === 'jugerun') {
     document.getElementById('login-screen').style.display = 'none';
     isLoggedIn = true;
-    loop(); // p5.jsの描画開始
+    loop();
   } else {
     document.getElementById('login-error').innerText = "パスワードが違います";
   }
 }
 
-// ---------------------------------------------------------
-// p5.js Setup & Draw
-// ---------------------------------------------------------
+// --- p5.js ---
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  if (!isLoggedIn) noLoop(); // ログイン前は止めておく
+  if (!isLoggedIn) noLoop();
   
-  // 日付初期化
   viewStartDate = new Date();
   viewStartDate.setHours(0,0,0,0);
-
-  // データ読み込み (LocalStorage)
   loadData();
-  
-  // ボタン定義
   setupButtons();
+  setupKeyEvents();
 }
 
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-}
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
 
 function draw() {
   if (!isLoggedIn) return;
-  
   background(COL_BG);
-  
-  // マウスカーソル制御
   updateCursor();
-
-  // ヘッダーバー描画
   drawControlBar();
 
   if (currentMode === 0) {
-    // --- カレンダーモード ---
+    // --- Calendar Mode ---
     let contentH = height - CONTROL_H - DATE_H;
-    
-    push();
-    translate(0, CONTROL_H);
-    drawDateHeader();
-    
-    // 時間軸エリアのクリップ
-    // p5.jsではclip()は少し複雑なので、簡易的に描画順序とrectでマスクする等の工夫をするか、
-    // ここでは単純にエリア外を描画しないロジックにする
-    translate(0, DATE_H);
-    
-    // スクロール適用
-    // 描画領域を制限
-    // (Web Canvasのclipは重いので、はみ出し部分はControlBarで上書きして隠す手法をとる)
-    push();
-    translate(0, scrollY);
+    push(); translate(0, CONTROL_H); drawDateHeader(); translate(0, DATE_H);
+    push(); translate(0, scrollY);
     
     drawTimeGrid();
     drawEvents();
     
-    // ドラッグ中の新規予定
+    // ドラッグ中の新規作成
     if (dragAction === 1 && creatingEvent) {
-      let offset = getDayOffset(new Date(creatingEvent.dateStr));
+      let d = new Date(creatingEvent.dateStr);
+      let offset = getDayOffset(d);
       if (offset >= 0 && offset < visibleDays) {
-        drawEventRect(creatingEvent, offset);
+        // 新規作成時はデフォルトでPlan(左側)として描画
+        drawEventRect(creatingEvent, offset, false);
       }
     }
     
-    pop(); // scrollY
-    pop(); // CONTROL_H + DATE_H
-    
-    // コントロールバーを再描画してはみ出しを隠す（簡易マスク）
+    pop(); pop();
     drawControlBar(); 
-
   } else {
-    // --- タスクモード ---
-    push();
-    translate(0, CONTROL_H);
-    drawTaskList();
-    pop();
-    
-    // ヘッダー再描画
+    // --- Task Mode ---
+    push(); translate(0, CONTROL_H); drawTaskList(); pop();
     drawControlBar();
   }
 }
 
-// ---------------------------------------------------------
-// 描画関数群
-// ---------------------------------------------------------
-
+// --- 描画関数 ---
 function drawControlBar() {
   noStroke(); fill(COL_WHITE); rect(0, 0, width, CONTROL_H);
-  fill(0, 20); rect(0, CONTROL_H, width, 1); // 影線
-
+  fill(0, 20); rect(0, CONTROL_H, width, 1);
   fill(COL_TEXT_MAIN); noStroke(); textAlign(CENTER, CENTER); textSize(18); textStyle(BOLD);
-  
   if (currentMode === 0) {
     let d = new Date(viewStartDate);
     text(`${d.getFullYear()}年 ${d.getMonth()+1}月`, width/2, CONTROL_H/2);
-    
-    // ボタンの描画
     drawButtons();
   } else {
     text("タスクボード (Doing / Backlog / Done)", width/2, CONTROL_H/2);
@@ -285,78 +230,46 @@ function drawControlBar() {
   textStyle(NORMAL);
 }
 
-// ボタン管理
 const buttons = [];
 function setupButtons() {
-  // ナビゲーション
   addButton("<<", 20, 15, 40, 30, () => moveDate(-7));
   addButton("<", 70, 15, 40, 30, () => moveDate(-1));
   addButton("今日", 120, 15, 60, 30, () => { viewStartDate = new Date(); viewStartDate.setHours(0,0,0,0); });
   addButton(">", 190, 15, 40, 30, () => moveDate(1));
   addButton(">>", 240, 15, 40, 30, () => moveDate(7));
-
-  // 表示日数
   addButton("Day", -220, 15, 50, 30, () => visibleDays = 1, true);
   addButton("4 Days", -160, 15, 60, 30, () => visibleDays = 4, true);
   addButton("Week", -90, 15, 50, 30, () => visibleDays = 7, true);
-
-  // 機能
   addButton("ICS出力", -310, 15, 80, 30, exportICS, true, '#10B981');
   addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
-  
-  // モード切替
   addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
 }
-
-function addButton(label, x, y, w, h, action, alignRight=false, color='#E5E7EB') {
-  buttons.push({label, x, y, w, h, action, alignRight, color});
-}
-
+function addButton(label, x, y, w, h, action, alignRight=false, color='#E5E7EB') { buttons.push({label, x, y, w, h, action, alignRight, color}); }
 function drawButtons() {
   textSize(12);
   buttons.forEach(b => {
     let bx = b.alignRight ? width + b.x : b.x;
-    let by = b.y;
-    
-    // モードによって表示/非表示を変えるボタンがあればここで制御
-    if (currentMode === 1) {
-      if (['Day', '4 Days', 'Week', '<<', '<', '>', '>>', '今日'].includes(b.label)) return;
-    }
-    
-    fill(b.color); noStroke(); rect(bx, by, b.w, b.h, 5);
+    if (currentMode === 1) { if (['Day', '4 Days', 'Week', '<<', '<', '>', '>>', '今日'].includes(b.label)) return; }
+    fill(b.color); noStroke(); rect(bx, b.y, b.w, b.h, 5);
     fill(b.color === '#E5E7EB' ? COL_TEXT_SUB : 'white');
-    
-    // ラベル可変
     let txt = b.label;
     if (b.label === "モード切替") txt = currentMode === 0 ? "タスク一覧へ" : "カレンダーへ";
-    
-    textAlign(CENTER, CENTER); text(txt, bx + b.w/2, by + b.h/2);
+    textAlign(CENTER, CENTER); text(txt, bx + b.w/2, b.y + b.h/2);
   });
 }
 
 function drawDateHeader() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
-  
   noStroke();
   for (let i = 0; i < visibleDays; i++) {
     let x = SIDEBAR_W + i * colW;
     let isToday = isSameDate(d, new Date());
-    
     fill(COL_BG); rect(x, 0, colW, DATE_H);
-    if (isToday) {
-      fill(COL_ACCENT); ellipse(x + colW/2, DATE_H/2, 30, 30);
-      fill(255);
-    } else {
-      fill(COL_TEXT_SUB);
-    }
+    if (isToday) { fill(COL_ACCENT); ellipse(x + colW/2, DATE_H/2, 30, 30); fill(255); } else { fill(COL_TEXT_SUB); }
     textAlign(CENTER, CENTER); textSize(14); textStyle(BOLD);
     text(`${d.getDate()} (${getDayName(d.getDay())})`, x + colW/2, DATE_H/2);
-    textStyle(NORMAL);
-    
-    // 境界線
-    stroke(COL_LINE); line(x, 0, x, DATE_H);
-    
+    textStyle(NORMAL); stroke(COL_LINE); line(x, 0, x, DATE_H);
     d.setDate(d.getDate() + 1);
   }
 }
@@ -364,184 +277,230 @@ function drawDateHeader() {
 function drawTimeGrid() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
+  let today = new Date(); today.setHours(0,0,0,0);
   
-  // 今日の背景
   noStroke();
   for (let i = 0; i < visibleDays; i++) {
-    if (isSameDate(d, new Date())) {
-      fill(COL_TODAY_BG); rect(SIDEBAR_W + i * colW, 0, colW, 24 * HOUR_H);
+    let x = SIDEBAR_W + i * colW;
+    // Today or Past => Split Mode
+    let isSplit = d <= today;
+    
+    if (isSameDate(d, today)) {
+      fill(COL_TODAY_BG); rect(x, 0, colW, 24 * HOUR_H);
     }
+    
+    // Split line for Plan/Actual
+    if (isSplit) {
+      stroke(COL_LINE);
+      line(x + colW/2, 0, x + colW/2, 24 * HOUR_H);
+      
+      // ラベル (Plan / Actual)
+      fill(COL_TEXT_SUB); textSize(10); textAlign(CENTER, TOP); noStroke();
+      // text("予定", x + colW/4, 5 + scrollY); // スクロールに追従させるならここだが今回は省略
+    }
+    
     d.setDate(d.getDate() + 1);
   }
-
-  // グリッド線と時間
+  
+  // 時間軸
   textAlign(RIGHT, CENTER); textSize(11); fill(COL_TEXT_SUB);
   for (let i = 0; i <= 24; i++) {
-    let y = i * HOUR_H;
-    stroke(COL_LINE); line(SIDEBAR_W, y, width, y);
-    noStroke(); text(`${i}:00`, SIDEBAR_W - 10, y);
-    
-    if (i < 24) {
-      stroke(240); line(SIDEBAR_W, y + HOUR_H/2, width, y + HOUR_H/2);
-    }
+    let y = i * HOUR_H; stroke(COL_LINE); line(SIDEBAR_W, y, width, y); noStroke(); text(`${i}:00`, SIDEBAR_W - 10, y);
+    if (i < 24) { stroke(240); line(SIDEBAR_W, y + HOUR_H/2, width, y + HOUR_H/2); }
   }
-  
-  // 縦線
-  stroke(COL_LINE);
-  for (let i = 0; i <= visibleDays; i++) {
-    line(SIDEBAR_W + i * colW, 0, SIDEBAR_W + i * colW, 24 * HOUR_H);
-  }
+  stroke(COL_LINE); for (let i = 0; i <= visibleDays; i++) line(SIDEBAR_W + i * colW, 0, SIDEBAR_W + i * colW, 24 * HOUR_H);
 }
 
 function drawEvents() {
+  let today = new Date(); today.setHours(0,0,0,0);
+  
   for (let e of events) {
-    let d = new Date(e.dateStr);
+    let d = new Date(e.dateStr); d.setHours(0,0,0,0);
     let offset = getDayOffset(d);
+    
     if (offset >= 0 && offset < visibleDays) {
-      drawEventRect(e, offset);
+      // 日付が今日または過去なら分割表示
+      let isSplit = d <= today;
+      drawEventRect(e, offset, isSplit);
     }
   }
 }
 
-function drawEventRect(e, offset) {
+function drawEventRect(e, offset, isSplit) {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let x = SIDEBAR_W + offset * colW;
+  let w = colW;
+  
+  if (isSplit) {
+    w = colW / 2;
+    // type 0:Plan(Left), 1:Actual(Right)
+    if (e.type === 1) x += w;
+  } else {
+    // 未来の日付なら、Actual(type=1)は表示しない
+    if (e.type === 1) return;
+  }
+  
   let y = e.start * HOUR_H;
   let h = e.duration * HOUR_H;
   let pad = 4;
   
-  // 影
-  noStroke(); fill(0, 20); rect(x + pad + 2, y + 2, colW - pad*2, h, 4);
-  // 本体
-  fill(EVENT_COLORS[e.colorIdx]); rect(x + pad, y, colW - pad*2, h, 4);
-  // 左バー
-  fill(0, 50); rect(x + pad, y, 5, h, 4, 0, 0, 4);
+  // 色調整 (実績は少し濃くする、または枠をつける等)
+  let baseColor = EVENT_COLORS[e.colorIdx];
   
-  // 選択枠
-  if (e === selectedItem) {
-    noFill(); stroke(0); strokeWeight(2);
-    rect(x + pad, y, colW - pad*2, h, 4);
-    strokeWeight(1); noStroke();
+  noStroke(); fill(0, 20); rect(x+pad+2, y+2, w-pad*2, h, 4);
+  fill(baseColor); rect(x+pad, y, w-pad*2, h, 4);
+  
+  // Actualの場合は見た目を少し変える（斜線とか難しいので、枠線などで区別）
+  if (e.type === 1) {
+    stroke(255, 100); strokeWeight(2);
+    line(x+pad+w-pad*2-10, y+5, x+pad+w-pad*2-5, y+10);
+    noStroke();
   }
   
-  // テキスト
+  fill(0, 50); rect(x+pad, y, 5, h, 4, 0, 0, 4);
+  
+  if (e === selectedItem) { noFill(); stroke(0); strokeWeight(2); rect(x+pad, y, w-pad*2, h, 4); strokeWeight(1); noStroke(); }
+  
   fill(255); textAlign(LEFT, TOP);
-  if (h > 20) {
-    textSize(11); textStyle(BOLD);
-    text(e.title, x + pad + 8, y + 4);
-  }
-  if (h > 40) {
-    textSize(10); textStyle(NORMAL);
-    text(`${formatTime(e.start)} - ${formatTime(e.start + e.duration)}`, x + pad + 8, y + 20);
-  }
+  // 幅が狭いのでクリップ考慮（簡易）
+  push();
+  // クリップの代わりに幅チェックで文字数制限風
+  if (h > 20) { textSize(11); textStyle(BOLD); text(e.title, x+pad+8, y+4); }
+  if (h > 40) { textSize(10); textStyle(NORMAL); text(`${formatTime(e.start)}-${formatTime(e.start+e.duration)}`, x+pad+8, y+20); }
+  pop();
 }
 
 // ---------------------------------------------------------
 // タスクリスト描画
 // ---------------------------------------------------------
 function drawTaskList() {
-  let fullH = height - CONTROL_H;
-  let colW = width / 3;
-  
-  // 背景 (Doing, Backlog, Done)
+  let fullH = height - CONTROL_H; let colW = width / 3;
   noStroke();
   fill(COL_DOING_BG);   rect(0, 0, colW, fullH);
   fill(COL_BACKLOG_BG); rect(colW, 0, colW, fullH);
   fill(COL_DONE_BG);    rect(colW*2, 0, colW, fullH);
+  stroke(COL_LINE); strokeWeight(2); line(colW, 0, colW, fullH); line(colW*2, 0, colW*2, fullH); strokeWeight(1);
   
-  stroke(COL_LINE); strokeWeight(2);
-  line(colW, 0, colW, fullH);
-  line(colW*2, 0, colW*2, fullH);
-  strokeWeight(1);
-  
-  // ヘッダー
   fill(COL_TEXT_SUB); textAlign(CENTER, TOP); textSize(14); textStyle(BOLD);
   text(`現在取り組んでいること (${doingTasks.length})`, colW/2, 10);
   text(`今後増えること (${backlogTasks.length})`, colW*1.5, 10);
   text(`終わったもの (${doneTasks.length})`, colW*2.5, 10);
   
-  // スクロール
-  push();
-  translate(0, taskScrollY);
-  
-  let itemH = 60; let margin = 40; let gap = 10;
-  let cardW = colW - 30;
-  
-  // リスト描画
+  push(); translate(0, taskScrollY);
+  let itemH = 60; let margin = 40; let gap = 10; let cardW = colW - 30;
   drawTaskItems(doingTasks, 15, margin, cardW, itemH, gap);
   drawTaskItems(backlogTasks, colW + 15, margin, cardW, itemH, gap);
   drawTaskItems(doneTasks, colW*2 + 15, margin, cardW, itemH, gap, true);
-  
   pop();
   
-  // ドラッグ中の表示
   if (isTaskDragging && draggingItem) {
     drawTaskCard(draggingItem, mouseX - cardW/2, mouseY - CONTROL_H + taskDragOffsetY, cardW, itemH);
   }
 }
-
 function drawTaskItems(list, x, startY, w, h, gap, showDeleteDate=false) {
   for (let i = 0; i < list.length; i++) {
     let t = list[i];
-    if (t === draggingItem) continue; // ドラッグ中は描画しない
+    if (t === draggingItem) continue;
     let y = startY + i * (h + gap);
     drawTaskCard(t, x, y, w, h);
-    
-    // 削除日表示
     if (showDeleteDate && t.completedDate) {
-      let delD = new Date(t.completedDate);
-      delD.setDate(delD.getDate() + 7);
+      let delD = new Date(t.completedDate); delD.setDate(delD.getDate() + 7);
       fill(COL_TEXT_SUB); textSize(10); textAlign(RIGHT, BOTTOM);
       text(`削除: ${delD.getMonth()+1}/${delD.getDate()}`, x + w, y + h + 10);
     }
   }
 }
-
 function drawTaskCard(t, x, y, w, h) {
-  // 影
-  noStroke(); fill(0, 10); rect(x+3, y+3, w, h, 8);
-  // 本体
-  fill(255); rect(x, y, w, h, 8);
-  // 色バー
+  noStroke(); fill(0, 10); rect(x+3, y+3, w, h, 8); fill(255); rect(x, y, w, h, 8);
   fill(TASK_COLORS[t.colorIdx]); rect(x, y, 8, h, 8, 0, 0, 8);
-  
-  if (t === selectedItem) {
-    noFill(); stroke(COL_ACCENT); strokeWeight(2);
-    rect(x, y, w, h, 8); strokeWeight(1); noStroke();
-  }
-  
-  fill(COL_TEXT_MAIN); textAlign(LEFT, CENTER); textSize(14); textStyle(BOLD);
-  text(t.title, x + 20, y + h/2 - 8);
-  fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL);
-  text(`締切: ${t.deadline}`, x + 20, y + h/2 + 10);
+  if (t === selectedItem) { noFill(); stroke(COL_ACCENT); strokeWeight(2); rect(x, y, w, h, 8); strokeWeight(1); noStroke(); }
+  fill(COL_TEXT_MAIN); textAlign(LEFT, CENTER); textSize(14); textStyle(BOLD); text(t.title, x+20, y+h/2-8);
+  fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL); text(`締切: ${t.deadline}`, x+20, y+h/2+10);
 }
 
-// ---------------------------------------------------------
-// 入力イベント
-// ---------------------------------------------------------
+// --- 入力イベント ---
+function setupKeyEvents() {
+  document.getElementById('password-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') checkLogin();
+  });
+  
+  const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline'];
+  inputs.forEach(id => {
+    document.getElementById(id).addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') saveItem();
+    });
+  });
+
+  document.getElementById('input-deadline').addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowUp') { changeDate(1); e.preventDefault(); } 
+    else if (e.key === 'ArrowDown') { changeDate(-1); e.preventDefault(); }
+  });
+}
+
+function changeDate(delta) {
+  let input = document.getElementById('input-deadline');
+  if (input.value) {
+    let d = new Date(input.value); d.setDate(d.getDate() + delta);
+    input.value = formatDateISO(d);
+  }
+}
+
+function doubleClicked() {
+  if (document.getElementById('modal-overlay').style.display === 'flex') return;
+  if (mouseY < CONTROL_H) return;
+
+  if (currentMode === 0) {
+    // Calendar double click
+    let colW = (width - SIDEBAR_W) / visibleDays;
+    let today = new Date(); today.setHours(0,0,0,0);
+    
+    for (let i = events.length - 1; i >= 0; i--) {
+      let e = events[i];
+      let d = new Date(e.dateStr); d.setHours(0,0,0,0);
+      let offset = getDayOffset(d);
+      if (offset < 0 || offset >= visibleDays) continue;
+      
+      let isSplit = d <= today;
+      let cellW = isSplit ? colW / 2 : colW;
+      let x = SIDEBAR_W + offset * colW;
+      if (isSplit && e.type === 1) x += cellW;
+      
+      if (isSplit && e.type === 1) { /* Actual */ }
+      else if (!isSplit && e.type === 1) continue; // Future actual not shown
+      
+      let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
+      let h = e.duration * HOUR_H;
+      
+      if (mouseX >= x && mouseX <= x + cellW && mouseY >= y && mouseY <= y + h) {
+        openModal(e, 'event'); return false;
+      }
+    }
+  } else {
+    // Task double click
+    let colW = width / 3; let itemH = 60; let margin = 40; let gap = 10;
+    let zone = Math.floor(mouseX / colW);
+    let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
+    let localY = mouseY - CONTROL_H - taskScrollY - margin;
+    let index = Math.floor(localY / (itemH + gap));
+    if (index >= 0 && index < targetList.length) {
+      openModal(targetList[index], 'task'); return false;
+    }
+  }
+}
 
 function mousePressed() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (!isLoggedIn) return;
-
-  // ボタンクリック判定
   let btnClicked = false;
   buttons.forEach(b => {
     let bx = b.alignRight ? width + b.x : b.x;
-    if (currentMode === 1 && ['Day','4 Days','Week','<<','<','>','>>','今日'].includes(b.label)) return; // タスクモードで非表示のボタン
-    
-    if (mouseX >= bx && mouseX <= bx + b.w && mouseY >= b.y && mouseY <= b.y + b.h) {
-      b.action();
-      btnClicked = true;
-    }
+    if (currentMode === 1) { if (['Day','4 Days','Week','<<','<','>','>>','今日'].includes(b.label)) return; }
+    if (mouseX >= bx && mouseX <= bx + b.w && mouseY >= b.y && mouseY <= b.y + b.h) { b.action(); btnClicked = true; }
   });
   if (btnClicked) return;
-
-  // エリア外なら何もしない
   if (mouseY < CONTROL_H) return;
 
   if (currentMode === 0) {
-    // --- カレンダー ---
     if (mouseX < SIDEBAR_W) return;
     
     // 座標計算
@@ -550,87 +509,71 @@ function mousePressed() {
     let colW = (width - SIDEBAR_W) / visibleDays;
     let dayIndex = Math.floor((mouseX - SIDEBAR_W) / colW);
     
-    // イベントクリック判定
+    let d = new Date(viewStartDate); d.setDate(d.getDate() + dayIndex); d.setHours(0,0,0,0);
+    let today = new Date(); today.setHours(0,0,0,0);
+    let isSplit = d <= today;
+    
+    // サブカラム判定
+    let subColumn = 0; // 0:Left(Plan), 1:Right(Actual)
+    if (isSplit) {
+      let relX = (mouseX - SIDEBAR_W) % colW;
+      if (relX > colW / 2) subColumn = 1;
+    }
+    
     let clicked = null;
-    // 逆順で判定（手前優先）
     for (let i = events.length - 1; i >= 0; i--) {
       let e = events[i];
-      let d = new Date(e.dateStr);
-      let offset = getDayOffset(d);
+      let ed = new Date(e.dateStr); ed.setHours(0,0,0,0);
+      let offset = getDayOffset(ed);
       if (offset < 0 || offset >= visibleDays) continue;
+      if (isSplit && e.type !== subColumn) continue; // 違う列のイベントは無視
+      if (!isSplit && e.type === 1) continue; // 未来の実績は無視
       
-      let x = SIDEBAR_W + offset * colW;
+      let cellW = isSplit ? colW/2 : colW;
+      let x = SIDEBAR_W + offset * colW + (e.type===1 ? cellW : 0);
       let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
       let h = e.duration * HOUR_H;
       
-      if (mouseX >= x && mouseX <= x + colW && mouseY >= y && mouseY <= y + h) {
+      if (mouseX >= x && mouseX <= x + cellW && mouseY >= y && mouseY <= y + h) {
         clicked = e;
-        // リサイズ判定
         let relY = mouseY - y;
-        if (relY < RESIZE_MARGIN) dragAction = 3; // Top
-        else if (relY > h - RESIZE_MARGIN) dragAction = 4; // Bottom
-        else {
-          dragAction = 2; // Move
-          dragOffsetTime = timeVal - e.start;
-        }
+        if (relY < RESIZE_MARGIN) dragAction = 3; else if (relY > h - RESIZE_MARGIN) dragAction = 4;
+        else { dragAction = 2; dragOffsetTime = timeVal - e.start; }
         break;
       }
     }
     
-    if (clicked) {
-      selectedItem = clicked;
-      // ダブルクリック判定 (簡易)
-      // ここではクリック後に編集ボタンを押すか、長押し等を実装せず、
-      // 離したときにアクションがなければ選択状態、という形にする。
-      // Webなのでクリック即ドラッグ開始でOK。
-    } else {
+    if (clicked) { selectedItem = clicked; } 
+    else {
       // 新規作成
       if (dayIndex >= 0 && dayIndex < visibleDays && timeVal >= 0 && timeVal < 24) {
-        let d = new Date(viewStartDate);
-        d.setDate(d.getDate() + dayIndex);
-        creatingEvent = {
-          dateStr: formatDateISO(d),
-          start: timeVal,
-          duration: 1.0,
-          title: "新規予定",
-          memo: "",
-          colorIdx: 0
+        // Actual(右)の新規作成は、Plan(左)からのコピー推奨だが、直接作成も許可するならここ
+        let newType = subColumn; 
+        
+        creatingEvent = { 
+          dateStr: formatDateISO(d), start: timeVal, duration: 1.0, 
+          title: newType===0 ? "新規予定" : "新規実績", memo: "", colorIdx: 0, 
+          type: newType 
         };
-        selectedItem = creatingEvent;
-        dragAction = 1; // Create
+        selectedItem = creatingEvent; dragAction = 1;
       }
     }
-    
   } else {
-    // --- タスク ---
-    let colW = width / 3;
-    let itemH = 60; let margin = 40; let gap = 10;
+    // Task Logic
+    let colW = width / 3; let itemH = 60; let margin = 40; let gap = 10;
     let localY = mouseY - CONTROL_H - taskScrollY - margin;
     let index = Math.floor(localY / (itemH + gap));
-    let zone = Math.floor(mouseX / colW); // 0:Doing, 1:Backlog, 2:Done
-    
+    let zone = Math.floor(mouseX / colW);
     let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
-    
     if (index >= 0 && index < targetList.length) {
       selectedItem = targetList[index];
-      draggingItem = selectedItem;
-      isTaskDragging = true;
+      draggingItem = selectedItem; isTaskDragging = true;
       let itemTop = margin + index * (itemH + gap) + taskScrollY;
       taskDragOffsetY = itemTop - (mouseY - CONTROL_H);
     } else {
-      // 空白クリックで新規作成 (Done以外)
       if (zone !== 2) {
-        let newTask = {
-          title: "新しいタスク",
-          deadline: formatDateISO(new Date()),
-          memo: "",
-          colorIdx: 2,
-          completedDate: ""
-        };
-        targetList.push(newTask);
-        selectedItem = newTask;
-        openModal(newTask, 'task'); // 即編集
-        saveData();
+        let newTask = { title: "新しいタスク", deadline: formatDateISO(new Date()), memo: "", colorIdx: 2, completedDate: "" };
+        targetList.push(newTask); selectedItem = newTask; openModal(newTask, 'task'); saveData();
       }
     }
   }
@@ -638,113 +581,80 @@ function mousePressed() {
 
 function mouseDragged() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
-  
   if (currentMode === 0) {
     if (dragAction === 0) return;
-    
     let globalY = mouseY - CONTROL_H - DATE_H - scrollY;
-    let rawTime = globalY / HOUR_H;
-    let snapTime = snapTo15Min(rawTime);
+    let rawTime = globalY / HOUR_H; let snapTime = snapTo15Min(rawTime);
     let colW = (width - SIDEBAR_W) / visibleDays;
     let dayIndex = Math.floor((mouseX - SIDEBAR_W) / colW);
-    // 日付範囲制限
-    if (dayIndex < 0) dayIndex = 0;
-    if (dayIndex >= visibleDays) dayIndex = visibleDays - 1;
+    if (dayIndex < 0) dayIndex = 0; if (dayIndex >= visibleDays) dayIndex = visibleDays - 1;
+    let d = new Date(viewStartDate); d.setDate(d.getDate() + dayIndex);
     
-    let d = new Date(viewStartDate);
-    d.setDate(d.getDate() + dayIndex);
+    // ドラッグ中に列（日付）が変わっても、type（Plan/Actual）は維持する
+    // ただし未来日に行ったらPlanのみ。今日/過去ならPlan/Actual維持。
     
-    if (dragAction === 1 && creatingEvent) { // Create
-      let dur = snapTime - creatingEvent.start;
-      if (dur < 0.25) dur = 0.25;
-      creatingEvent.duration = dur;
+    if (dragAction === 1 && creatingEvent) {
+      let dur = snapTime - creatingEvent.start; if (dur < 0.25) dur = 0.25; creatingEvent.duration = dur;
     } else if (selectedItem) {
-      if (dragAction === 2) { // Move
-        let newStart = snapTo15Min(rawTime - dragOffsetTime);
-        if (newStart < 0) newStart = 0;
+      if (dragAction === 2) {
+        let newStart = snapTo15Min(rawTime - dragOffsetTime); if (newStart < 0) newStart = 0;
         if (newStart + selectedItem.duration > 24) newStart = 24 - selectedItem.duration;
-        selectedItem.start = newStart;
+        selectedItem.start = newStart; 
         selectedItem.dateStr = formatDateISO(d);
-      } else if (dragAction === 3) { // Resize Top
-        let oldEnd = selectedItem.start + selectedItem.duration;
-        let newStart = snapTime;
-        if (newStart > oldEnd - 0.25) newStart = oldEnd - 0.25;
-        selectedItem.start = newStart;
-        selectedItem.duration = oldEnd - newStart;
-      } else if (dragAction === 4) { // Resize Bottom
-        let newEnd = snapTime;
-        let newDur = newEnd - selectedItem.start;
-        if (newDur < 0.25) newDur = 0.25;
-        selectedItem.duration = newDur;
+        // 未来へドラッグしたら強制的にPlan(0)にする？一旦そのまま
+      } else if (dragAction === 3) {
+        let oldEnd = selectedItem.start + selectedItem.duration; let newStart = snapTime;
+        if (newStart > oldEnd - 0.25) newStart = oldEnd - 0.25; selectedItem.start = newStart; selectedItem.duration = oldEnd - newStart;
+      } else if (dragAction === 4) {
+        let newEnd = snapTime; let newDur = newEnd - selectedItem.start;
+        if (newDur < 0.25) newDur = 0.25; selectedItem.duration = newDur;
       }
     }
-  } else {
-    // タスクドラッグ中は描画側で位置更新
   }
 }
 
 function mouseReleased() {
   if (currentMode === 0) {
-    if (dragAction === 1 && creatingEvent) {
-      events.push(creatingEvent);
-      selectedItem = creatingEvent;
-      openModal(selectedItem, 'event');
-      creatingEvent = null;
-    }
-    dragAction = 0;
-    saveData();
-  } else {
-    // タスクドロップ
-    if (isTaskDragging && draggingItem) {
-      let colW = width / 3;
-      let dropZone = Math.floor(mouseX / colW); // 0,1,2
+    if (dragAction === 1 && creatingEvent) { 
+      events.push(creatingEvent); 
+      selectedItem = creatingEvent; 
       
-      // 元のリストから削除
-      removeFromAllLists(draggingItem);
-      
-      // 新しいリストへ追加
-      if (dropZone === 0) {
-        doingTasks.push(draggingItem);
-        draggingItem.completedDate = "";
-      } else if (dropZone === 1) {
-        backlogTasks.push(draggingItem);
-        draggingItem.completedDate = "";
-      } else {
-        doneTasks.unshift(draggingItem);
-        if (!draggingItem.completedDate) draggingItem.completedDate = formatDateISO(new Date());
+      // ★自動コピー処理: 
+      // 予定(type=0)を作成した場合、即座に実績(type=1)も作成する
+      if (creatingEvent.type === 0) {
+        // オブジェクトのコピー
+        let actualCopy = JSON.parse(JSON.stringify(creatingEvent));
+        actualCopy.type = 1; // Actual
+        events.push(actualCopy);
       }
       
-      // 実際はここでクリックだけだった場合(移動なし)はモーダルを開く判定を入れると親切
-      // 簡易的に「移動距離が短ければクリック」とみなすロジックは省略し、
-      // 常にドロップ時は移動確定とする。詳細編集は「ダブルクリック」実装がp5では面倒なので
-      // 「クリックして選択 -> モーダル開くボタン」や「右クリック」などが確実だが、
-      // ここでは mousePressed で即モーダルを開かないようにしたので、
-      // mouseReleased で「ドラッグしてなければ」開くようにする。
-      
-      // 簡易実装: リリース時にモーダルを開く（移動してても開いてしまうが、確認のため良しとする）
+      openModal(selectedItem, 'event'); 
+      creatingEvent = null; 
+    }
+    dragAction = 0; saveData();
+  } else {
+    if (isTaskDragging && draggingItem) {
+      let colW = width / 3; let dropZone = Math.floor(mouseX / colW);
+      removeFromAllLists(draggingItem);
+      if (dropZone === 0) { doingTasks.push(draggingItem); draggingItem.completedDate = ""; }
+      else if (dropZone === 1) { backlogTasks.push(draggingItem); draggingItem.completedDate = ""; }
+      else { doneTasks.unshift(draggingItem); if (!draggingItem.completedDate) draggingItem.completedDate = formatDateISO(new Date()); }
       openModal(draggingItem, 'task'); 
-      
-      isTaskDragging = false;
-      draggingItem = null;
-      saveData();
+      isTaskDragging = false; draggingItem = null; saveData();
     }
   }
 }
 
 function mouseWheel(event) {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
-  
   let d = event.deltaY;
   if (currentMode === 0) {
     scrollY -= d;
-    let maxH = 24 * HOUR_H;
-    let viewH = height - CONTROL_H - DATE_H;
-    if (scrollY > 0) scrollY = 0;
-    if (scrollY < viewH - maxH) scrollY = viewH - maxH;
+    let maxH = 24 * HOUR_H; let viewH = height - CONTROL_H - DATE_H;
+    if (scrollY > 0) scrollY = 0; if (scrollY < viewH - maxH) scrollY = viewH - maxH;
   } else {
     taskScrollY -= d;
     if (taskScrollY > 0) taskScrollY = 0;
-    // 下限は簡易計算
     let maxCount = Math.max(doingTasks.length, backlogTasks.length, doneTasks.length);
     let contentH = maxCount * 70 + 100;
     let viewH = height - CONTROL_H;
@@ -753,131 +663,95 @@ function mouseWheel(event) {
   }
 }
 
-// ---------------------------------------------------------
-// モーダル操作
-// ---------------------------------------------------------
+// --- モーダル関数 ---
 function openModal(item, type) {
   selectedItem = item;
   let modal = document.getElementById('modal-overlay');
   let headerBar = document.getElementById('modal-header-bar');
-  let titleIn = document.getElementById('input-title');
-  let memoIn = document.getElementById('input-memo');
   let colorPicker = document.getElementById('color-picker');
-  
-  let groupTime = document.getElementById('group-time');
-  let groupDeadline = document.getElementById('group-deadline');
-  
   modal.style.display = 'flex';
   
-  titleIn.value = item.title;
-  memoIn.value = item.memo;
+  document.getElementById('input-title').value = item.title;
+  document.getElementById('input-memo').value = item.memo;
   
-  // カラーパレット生成
   colorPicker.innerHTML = '';
   let colors = (type === 'event') ? EVENT_COLORS : TASK_COLORS;
+  
+  // 色選択 (DOM操作のみ)
   colors.forEach((c, idx) => {
     let div = document.createElement('div');
     div.className = 'color-circle' + (idx === item.colorIdx ? ' selected' : '');
     div.style.backgroundColor = c;
     div.onclick = () => {
       item.colorIdx = idx;
-      openModal(item, type); // 再描画更新
+      headerBar.style.background = c;
+      // DOM class更新
+      Array.from(colorPicker.children).forEach((child, i) => {
+        if(i === idx) child.classList.add('selected');
+        else child.classList.remove('selected');
+      });
     };
     colorPicker.appendChild(div);
   });
   headerBar.style.background = colors[item.colorIdx];
 
   if (type === 'event') {
-    groupTime.style.display = 'block';
-    groupDeadline.style.display = 'none';
-    
-    // 時間設定
-    let startStr = formatTimeInput(item.start);
-    let endStr = formatTimeInput(item.start + item.duration);
-    document.getElementById('input-start').value = startStr;
-    document.getElementById('input-end').value = endStr;
-    
+    document.getElementById('label-title').innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
+    document.getElementById('group-time').style.display = 'block';
+    document.getElementById('group-deadline').style.display = 'none';
+    document.getElementById('input-start').value = formatTimeInput(item.start);
+    document.getElementById('input-end').value = formatTimeInput(item.start + item.duration);
   } else {
-    groupTime.style.display = 'none';
-    groupDeadline.style.display = 'block';
-    
+    document.getElementById('label-title').innerText = "タスク名";
+    document.getElementById('group-time').style.display = 'none';
+    document.getElementById('group-deadline').style.display = 'block';
     document.getElementById('input-deadline').value = item.deadline;
-    
-    // キーボード操作で日付変更できるようにフォーカス時にリスナー追加等は
-    // HTMLの標準input type="date"が優秀なので基本任せるが、
-    // 要望の「上下キー」はinput type="date"で標準対応されていることが多い。
   }
 }
 
 function saveItem() {
   if (!selectedItem) return;
-  
   selectedItem.title = document.getElementById('input-title').value;
   selectedItem.memo = document.getElementById('input-memo').value;
-  
   if (currentMode === 0) {
     let s = parseTimeInput(document.getElementById('input-start').value);
     let e = parseTimeInput(document.getElementById('input-end').value);
-    if (s >= 0 && e > s) {
-      selectedItem.start = s;
-      selectedItem.duration = e - s;
-    }
+    if (s >= 0 && e > s) { selectedItem.start = s; selectedItem.duration = e - s; }
   } else {
     selectedItem.deadline = document.getElementById('input-deadline').value;
   }
-  
-  saveData();
-  closeModal();
+  saveData(); closeModal();
 }
 
 function deleteItem() {
   if (!selectedItem) return;
-  
-  if (currentMode === 0) {
-    events = events.filter(e => e !== selectedItem);
-  } else {
-    removeFromAllLists(selectedItem);
-  }
-  selectedItem = null;
-  saveData();
-  closeModal();
+  if (currentMode === 0) { events = events.filter(e => e !== selectedItem); }
+  else { removeFromAllLists(selectedItem); }
+  selectedItem = null; saveData(); closeModal();
 }
+function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
+function toggleMode() { currentMode = (currentMode === 0) ? 1 : 0; }
 
-function closeModal() {
-  document.getElementById('modal-overlay').style.display = 'none';
-}
-
-function toggleMode() {
-  currentMode = (currentMode === 0) ? 1 : 0;
-}
-
-// ---------------------------------------------------------
-// データ管理 & Helper
-// ---------------------------------------------------------
+// --- データ管理 ---
 function loadData() {
-  // Event
-  let savedEvents = localStorage.getItem('calendar_events');
-  if (savedEvents) events = JSON.parse(savedEvents);
+  let svE = localStorage.getItem('calendar_events'); 
+  if(svE) {
+    events = JSON.parse(svE);
+    // データ移行: typeがない古いデータは0(Plan)にする
+    events.forEach(e => { if(e.type === undefined) e.type = 0; });
+    
+    // ★ 自動コピー: 過去/今日のPlanで、対応するActualがない場合、自動生成する？
+    // 今回は「アプリ起動時に自動同期」はせず、新規作成時のみコピーとする。
+    // （過去データがいきなり増殖するのを防ぐため）
+  }
   
-  // Task
-  let savedBacklog = localStorage.getItem('task_backlog');
-  let savedDoing = localStorage.getItem('task_doing');
-  let savedDone = localStorage.getItem('task_done');
+  let svB = localStorage.getItem('task_backlog'); if(svB) backlogTasks = JSON.parse(svB);
+  let svD = localStorage.getItem('task_doing'); if(svD) doingTasks = JSON.parse(svD);
+  let svF = localStorage.getItem('task_done'); if(svF) doneTasks = JSON.parse(svF);
   
-  if (savedBacklog) backlogTasks = JSON.parse(savedBacklog);
-  if (savedDoing) doingTasks = JSON.parse(savedDoing);
-  if (savedDone) doneTasks = JSON.parse(savedDone);
-  
-  // 自動削除 (Doneで1週間以上経過)
-  let oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  
-  doneTasks = doneTasks.filter(t => {
-    if (!t.completedDate) return true;
-    return new Date(t.completedDate) >= oneWeekAgo;
-  });
+  let oneWeekAgo = new Date(); oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  doneTasks = doneTasks.filter(t => { if (!t.completedDate) return true; return new Date(t.completedDate) >= oneWeekAgo; });
 }
-
 function saveData() {
   localStorage.setItem('calendar_events', JSON.stringify(events));
   localStorage.setItem('task_backlog', JSON.stringify(backlogTasks));
@@ -885,189 +759,60 @@ function saveData() {
   localStorage.setItem('task_done', JSON.stringify(doneTasks));
 }
 
+// --- Utils ---
+function moveDate(days) { viewStartDate.setDate(viewStartDate.getDate() + days); }
+function getDayOffset(date) { let diff = date - viewStartDate; return Math.floor(diff / (1000 * 60 * 60 * 24)); }
+function isSameDate(d1, d2) { return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate(); }
+function formatDateISO(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function formatTime(val) { let h = Math.floor(val); let m = Math.round((val - h) * 60); return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+function formatTimeInput(val) { return formatTime(val); }
+function parseTimeInput(str) { let parts = str.split(':'); if (parts.length === 2) return parseInt(parts[0]) + parseInt(parts[1])/60; return 0; }
+function snapTo15Min(val) { return Math.round(val / 0.25) * 0.25; }
+function removeFromAllLists(t) { backlogTasks = backlogTasks.filter(x => x !== t); doingTasks = doingTasks.filter(x => x !== t); doneTasks = doneTasks.filter(x => x !== t); }
+function getDayName(i) { return ['日','月','火','水','木','金','土'][i]; }
+
 function exportICS() {
+  // Plan(type=0)のみ出力するか、両方出力するか。通常はPlanのみ。
   let calContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//My Web App//EN\n";
-  
   events.forEach(e => {
-    // 簡易的な日時変換
+    if (e.type === 1) return; // 実績はICSに出さない（オプション）
     let d = new Date(e.dateStr);
-    let sH = Math.floor(e.start);
-    let sM = Math.round((e.start - sH) * 60);
-    let eH = Math.floor(e.start + e.duration);
-    let eM = Math.round((e.start + e.duration - eH) * 60);
-    
-    let dtStart = formatICSDate(d, sH, sM);
-    let dtEnd = formatICSDate(d, eH, eM);
-    
-    calContent += "BEGIN:VEVENT\n";
-    calContent += `DTSTART:${dtStart}\n`;
-    calContent += `DTEND:${dtEnd}\n`;
-    calContent += `SUMMARY:${e.title}\n`;
-    calContent += `DESCRIPTION:${e.memo.replace(/\n/g, '\\n')}\n`;
-    calContent += "END:VEVENT\n";
+    let sH = Math.floor(e.start); let sM = Math.round((e.start - sH) * 60);
+    let eH = Math.floor(e.start + e.duration); let eM = Math.round((e.start + e.duration - eH) * 60);
+    let dtStart = formatICSDate(d, sH, sM); let dtEnd = formatICSDate(d, eH, eM);
+    calContent += "BEGIN:VEVENT\n" + `DTSTART:${dtStart}\n` + `DTEND:${dtEnd}\n` + `SUMMARY:${e.title}\n` + `DESCRIPTION:${e.memo.replace(/\n/g, '\\n')}\n` + "END:VEVENT\n";
   });
-  
   calContent += "END:VCALENDAR";
-  
   let blob = new Blob([calContent], { type: 'text/calendar' });
-  let url = URL.createObjectURL(blob);
-  let a = document.createElement('a');
-  a.href = url;
-  a.download = 'schedule.ics';
-  a.click();
+  let url = URL.createObjectURL(blob); let a = document.createElement('a'); a.href = url; a.download = 'schedule.ics'; a.click();
 }
-
 document.getElementById('file-input').addEventListener('change', function(e) {
-  let file = e.target.files[0];
-  if (!file) return;
+  let file = e.target.files[0]; if (!file) return;
   let reader = new FileReader();
-  reader.onload = function(e) {
-    parseICS(e.target.result);
-  };
-  reader.readAsText(file);
+  reader.onload = function(e) { parseICS(e.target.result); }; reader.readAsText(file);
 });
-
 function parseICS(text) {
-  // 簡易パーサー
-  let lines = text.split(/\r\n|\n|\r/);
-  let inEvent = false;
-  let tempEvent = {};
-  
+  let lines = text.split(/\r\n|\n|\r/); let inEvent = false; let tempEvent = {};
   lines.forEach(line => {
-    if (line.startsWith('BEGIN:VEVENT')) { inEvent = true; tempEvent = {title:"No Title", memo:"", duration:1}; }
-    else if (line.startsWith('END:VEVENT')) {
-      if (inEvent && tempEvent.start) events.push(tempEvent);
-      inEvent = false;
-    } else if (inEvent) {
+    if (line.startsWith('BEGIN:VEVENT')) { inEvent = true; tempEvent = {title:"No Title", memo:"", duration:1, type:0}; } // default type 0
+    else if (line.startsWith('END:VEVENT')) { if (inEvent && tempEvent.start) events.push(tempEvent); inEvent = false; }
+    else if (inEvent) {
       if (line.startsWith('SUMMARY:')) tempEvent.title = line.substring(8);
       else if (line.startsWith('DESCRIPTION:')) tempEvent.memo = line.substring(12).replace(/\\n/g, '\n');
       else if (line.startsWith('DTSTART')) {
-        let val = line.split(':')[1];
-        let p = parseICSDate(val);
-        tempEvent.dateStr = formatDateISO(p.d);
-        tempEvent.start = p.h + p.m/60;
+        let val = line.split(':')[1]; let p = parseICSDate(val);
+        tempEvent.dateStr = formatDateISO(p.d); tempEvent.start = p.h + p.m/60;
       }
     }
   });
-  saveData();
-  alert('インポート完了');
+  saveData(); alert('インポート完了');
 }
-
-// Helpers
-function moveDate(days) {
-  viewStartDate.setDate(viewStartDate.getDate() + days);
-}
-function updateCursor() {
-  if (currentMode === 0) {
-    if (mouseY > CONTROL_H + DATE_H && mouseX > SIDEBAR_W) {
-      let globalY = mouseY - CONTROL_H - DATE_H - scrollY;
-      let rawTime = globalY / HOUR_H;
-      // シンプルなカーソル切り替え
-      cursor(ARROW);
-    } else cursor(ARROW);
-  } else {
-    cursor(isTaskDragging ? MOVE : ARROW);
-  }
-}
-function getDayOffset(date) {
-  let diff = date - viewStartDate;
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-}
-function isSameDate(d1, d2) {
-  return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate();
-}
-function formatDateISO(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function formatTime(val) {
-  let h = Math.floor(val);
-  let m = Math.round((val - h) * 60);
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-}
-function formatTimeInput(val) {
-  let h = Math.floor(val);
-  let m = Math.round((val - h) * 60);
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-}
-function parseTimeInput(str) {
-  let parts = str.split(':');
-  if (parts.length === 2) return parseInt(parts[0]) + parseInt(parts[1])/60;
-  return 0;
-}
-function snapTo15Min(val) { return Math.round(val / 0.25) * 0.25; }
-function removeFromAllLists(t) {
-  backlogTasks = backlogTasks.filter(x => x !== t);
-  doingTasks = doingTasks.filter(x => x !== t);
-  doneTasks = doneTasks.filter(x => x !== t);
-}
-function getDayName(i) { return ['日','月','火','水','木','金','土'][i]; }
-function formatICSDate(d, h, m) {
-  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}T${String(h).padStart(2,'0')}${String(m).padStart(2,'0')}00`;
-}
+function formatICSDate(d, h, m) { return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}T${String(h).padStart(2,'0')}${String(m).padStart(2,'0')}00`; }
 function parseICSDate(str) {
-  // YYYYMMDDTHHMMSS
-  let y = parseInt(str.substring(0,4));
-  let m = parseInt(str.substring(4,6))-1;
-  let d = parseInt(str.substring(6,8));
+  let y = parseInt(str.substring(0,4)); let m = parseInt(str.substring(4,6))-1; let d = parseInt(str.substring(6,8));
   let h = 0, min = 0;
-  if (str.includes('T')) {
-    let tPart = str.split('T')[1];
-    h = parseInt(tPart.substring(0,2));
-    min = parseInt(tPart.substring(2,4));
-  }
+  if (str.includes('T')) { let tPart = str.split('T')[1]; h = parseInt(tPart.substring(0,2)); min = parseInt(tPart.substring(2,4)); }
   return { d: new Date(y,m,d), h: h, m: min };
-}
-
-function doubleClicked() {
-  // モーダルが開いているときは何もしない
-  if (document.getElementById('modal-overlay').style.display === 'flex') return;
-  // エリア外なら何もしない
-  if (mouseY < CONTROL_H) return;
-
-  if (currentMode === 0) {
-    // --- カレンダーモード ---
-    // マウス位置にあるイベントを探す
-    let colW = (width - SIDEBAR_W) / visibleDays;
-    
-    // 逆順で判定（手前優先）
-    for (let i = events.length - 1; i >= 0; i--) {
-      let e = events[i];
-      let d = new Date(e.dateStr);
-      let offset = getDayOffset(d);
-      
-      // 表示範囲外ならスキップ
-      if (offset < 0 || offset >= visibleDays) continue;
-      
-      let x = SIDEBAR_W + offset * colW;
-      let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
-      let h = e.duration * HOUR_H;
-      
-      // ヒット判定
-      if (mouseX >= x && mouseX <= x + colW && mouseY >= y && mouseY <= y + h) {
-        openModal(e, 'event'); // 詳細画面を開く
-        return false; // ブラウザ標準のダブルクリック動作（テキスト選択など）を防ぐ
-      }
-    }
-  } else {
-    // --- タスクモード ---
-    let colW = width / 3;
-    let itemH = 60; let margin = 40; let gap = 10;
-    
-    // ゾーン判定 (0:Doing, 1:Backlog, 2:Done)
-    let zone = Math.floor(mouseX / colW);
-    let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
-    
-    // Y座標からインデックスを計算
-    let localY = mouseY - CONTROL_H - taskScrollY - margin;
-    let index = Math.floor(localY / (itemH + gap));
-    
-    // ヒット判定
-    if (index >= 0 && index < targetList.length) {
-      let task = targetList[index];
-      openModal(task, 'task'); // 詳細画面を開く
-      return false;
-    }
-  }
 }
 </script>
 </body>
