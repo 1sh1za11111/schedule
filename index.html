@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schedule & Task App (予実管理版)</title>
+  <title>Schedule & Task App (予実管理・完全版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <style>
-    /* 全体のスタイル設定 */
+    /* スタイル設定 */
     body { margin: 0; padding: 0; overflow: hidden; font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; background-color: #F4F5F7; }
     
     /* ログイン画面 */
@@ -42,7 +42,6 @@
 </head>
 <body>
 
-  <!-- Login -->
   <div id="login-screen">
     <div class="login-box">
       <h2>Welcome</h2>
@@ -55,7 +54,6 @@
 
   <input type="file" id="file-input" accept=".ics">
 
-  <!-- Modal -->
   <div id="modal-overlay">
     <div class="modal-content">
       <div id="modal-header-bar" class="modal-header"></div>
@@ -94,44 +92,18 @@
   </div>
 
 <script>
-// --- クラス定義 ---
-class Button {
-  constructor(l, x, y, w, h, action, alignRight=false, color='#E5E7EB') {
-    this.label = l; this.x = x; this.y = y; this.w = w; this.h = h;
-    this.action = action; this.alignRight = alignRight; this.color = color;
-  }
-}
+// =========================================================
+//  1. グローバル変数と定数の定義 (ここを最初に！)
+// =========================================================
 
-class Event {
-  constructor(dateStr, start, duration, title, colorIdx, type=0) {
-    this.dateStr = dateStr; 
-    this.start = start; 
-    this.duration = duration; 
-    this.title = title; 
-    this.colorIdx = colorIdx;
-    this.memo = "";
-    this.type = type; // 0:Plan(予定), 1:Actual(実績)
-  }
-}
-
-class Task {
-  constructor(title, deadline, memo, colorIdx) {
-    this.title = title; 
-    this.deadline = deadline; 
-    this.memo = memo; 
-    this.colorIdx = colorIdx;
-    this.completedDate = "";
-    this.status = 0; // 0:Doing, 1:Backlog, 2:Done
-  }
-}
-
-// --- グローバル設定 ---
+// デザイン定数
 const CONTROL_H = 60;
 const DATE_H = 50;
 const SIDEBAR_W = 70;
 const HOUR_H = 80;
 const RESIZE_MARGIN = 10;
 
+// カラー定数
 const COL_BG = '#F4F5F7';
 const COL_WHITE = '#FFFFFF';
 const COL_TEXT_MAIN = '#1F2937';
@@ -147,20 +119,26 @@ const COL_DONE_BG = '#E5E7EB';
 const EVENT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#6B7280'];
 const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6'];
 
-// --- データ ---
+// 状態変数 (ここで宣言しておけば ReferenceError になりません)
+let showModal = false;
+let showTaskModal = false;
+let isLoggedIn = false;
+let isEditingDeadline = false;
+
+// データ配列
 let events = [];
 let backlogTasks = [];
 let doingTasks = [];
 let doneTasks = [];
 
+// カレンダー表示状態
 let viewStartDate;
 let visibleDays = 4;
 let scrollY = -600;
 let taskScrollY = 0;
 let currentMode = 0; // 0:Calendar, 1:Task
-let isLoggedIn = false;
 
-// --- 操作状態 ---
+// 操作系変数
 let selectedItem = null;
 let creatingEvent = null;
 let draggingItem = null;
@@ -168,15 +146,53 @@ let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
 let dragOffsetTime = 0;
 let taskDragOffsetY = 0;
 let isTaskDragging = false;
-let isEditingDeadline = false;
 
-// --- ログイン処理 ---
+// ボタン管理配列
+const buttons = [];
+
+// =========================================================
+//  2. クラス定義
+// =========================================================
+class Button {
+  constructor(l, x, y, w, h, action, alignRight=false, color='#E5E7EB') {
+    this.label = l; this.x = x; this.y = y; this.w = w; this.h = h;
+    this.action = action; this.alignRight = alignRight; this.color = color;
+  }
+}
+
+class Event {
+  constructor(dateStr, start, duration, title, colorIdx, type=0) {
+    this.dateStr = dateStr; 
+    this.start = start; 
+    this.duration = duration; 
+    this.title = title; 
+    this.colorIdx = colorIdx;
+    this.memo = "";
+    this.type = type; // 0:Plan, 1:Actual
+  }
+}
+
+class Task {
+  constructor(title, deadline, memo, colorIdx) {
+    this.title = title; 
+    this.deadline = deadline; 
+    this.memo = memo; 
+    this.colorIdx = colorIdx;
+    this.completedDate = "";
+    this.status = 0; // 0:Doing, 1:Backlog, 2:Done
+  }
+}
+
+// =========================================================
+//  3. システム初期化 & p5.js関数
+// =========================================================
+
 function checkLogin() {
   const pass = document.getElementById('password-input').value;
   if (pass === 'jugerun') {
     document.getElementById('login-screen').style.display = 'none';
     isLoggedIn = true;
-    loop();
+    loop(); // 描画開始
   } else {
     document.getElementById('login-error').innerText = "パスワードが違います";
   }
@@ -189,12 +205,11 @@ function resetAllData() {
   }
 }
 
-// --- p5.js Setup ---
 function setup() {
   createCanvas(windowWidth, windowHeight);
   if (!isLoggedIn) noLoop();
   
-  // ★修正: フォント設定をp5.js用の正しい記述に変更
+  // フォント設定 (Web標準)
   textFont('sans-serif');
   textStyle(NORMAL);
   
@@ -206,9 +221,10 @@ function setup() {
   setupKeyEvents();
 }
 
-function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
 
-// --- p5.js Draw ---
 function draw() {
   if (!isLoggedIn) return;
   
@@ -217,14 +233,15 @@ function draw() {
   drawControlBar();
 
   if (currentMode === 0) {
-    // --- Calendar Mode ---
+    // --- カレンダーモード ---
     let contentH = height - CONTROL_H - DATE_H;
+    
     push();
     translate(0, CONTROL_H);
     drawDateHeader();
     translate(0, DATE_H);
     
-    // スクロールエリア
+    // スクロール
     push();
     translate(0, scrollY);
     
@@ -233,9 +250,10 @@ function draw() {
     
     // ドラッグ中の新規イベント
     if (dragAction === 1 && creatingEvent) {
-      let offset = getDayOffset(new Date(creatingEvent.dateStr));
+      let d = new Date(creatingEvent.dateStr);
+      let offset = getDayOffset(d);
       if (offset >= 0 && offset < visibleDays) {
-        let isSplit = isPastOrToday(new Date(creatingEvent.dateStr));
+        let isSplit = isPastOrToday(d);
         drawEventRect(creatingEvent, offset, isSplit);
       }
     }
@@ -243,11 +261,11 @@ function draw() {
     pop(); 
     pop();
     
-    // ヘッダー再描画
-    drawControlBar(); 
+    // マスク代わりの再描画
+    drawControlBar();
 
   } else {
-    // --- Task Mode ---
+    // --- タスクモード ---
     push();
     translate(0, CONTROL_H);
     drawTaskList();
@@ -256,7 +274,9 @@ function draw() {
   }
 }
 
-// --- 描画関数 ---
+// =========================================================
+//  4. 描画ロジック
+// =========================================================
 
 function drawControlBar() {
   noStroke(); fill(COL_WHITE); rect(0, 0, width, CONTROL_H);
@@ -274,8 +294,8 @@ function drawControlBar() {
   textStyle(NORMAL);
 }
 
-const buttons = [];
 function setupButtons() {
+  buttons.length = 0; // Reset
   addButton("<<", 20, 15, 40, 30, () => moveDate(-7));
   addButton("<", 70, 15, 40, 30, () => moveDate(-1));
   addButton("今日", 120, 15, 60, 30, () => { viewStartDate = new Date(); viewStartDate.setHours(0,0,0,0); });
@@ -321,6 +341,7 @@ function drawDateHeader() {
   fill(COL_BG); rect(0, 0, SIDEBAR_W, DATE_H);
 }
 
+// ★ 予実管理対応 TimeGrid
 function drawTimeGrid() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
@@ -332,9 +353,15 @@ function drawTimeGrid() {
     let isSplit = d <= today; // 今日・過去は分割
     
     if (isSameDate(d, today)) { fill(COL_TODAY_BG); rect(x, 0, colW, 24 * HOUR_H); }
-    if (isSplit) { stroke(COL_LINE); line(x + colW/2, 0, x + colW/2, 24 * HOUR_H); }
+    
+    // 分割線
+    if (isSplit) {
+      stroke(COL_LINE);
+      line(x + colW/2, 0, x + colW/2, 24 * HOUR_H);
+    }
     d.setDate(d.getDate() + 1);
   }
+  
   textAlign(RIGHT, CENTER); textSize(11); fill(COL_TEXT_SUB);
   for (let i = 0; i <= 24; i++) {
     let y = i * HOUR_H; stroke(COL_LINE); line(SIDEBAR_W, y, width, y); noStroke(); text(`${i}:00`, SIDEBAR_W - 10, y);
@@ -343,6 +370,7 @@ function drawTimeGrid() {
   stroke(COL_LINE); for (let i = 0; i <= visibleDays; i++) line(SIDEBAR_W + i * colW, 0, SIDEBAR_W + i * colW, 24 * HOUR_H);
 }
 
+// ★ 予実管理対応 Event描画
 function drawEvents() {
   let today = new Date(); today.setHours(0,0,0,0);
   for (let e of events) {
@@ -364,7 +392,7 @@ function drawEventRect(e, offset, isSplit) {
   // type 0:Plan, 1:Actual
   if (isSplit) {
     w = colW / 2;
-    if (e.type === 1) x += w;
+    if (e.type === 1) x += w; // Actualは右側
   } else {
     if (e.type === 1) return; // 未来の実績は非表示
   }
@@ -376,7 +404,7 @@ function drawEventRect(e, offset, isSplit) {
   noStroke(); fill(0, 20); rect(x+pad+2, y+2, w-pad*2, h, 4);
   
   fill(EVENT_COLORS[e.colorIdx]);
-  // Actualは見た目を少し変える（枠線）
+  // 実績は少し見た目を変える（枠線）
   if (e.type === 1) { stroke(255, 150); strokeWeight(2); } else { noStroke(); }
   
   rect(x+pad, y, w-pad*2, h, 4); 
@@ -386,10 +414,9 @@ function drawEventRect(e, offset, isSplit) {
   if (e === selectedItem) { noFill(); stroke(0); strokeWeight(2); rect(x+pad, y, w-pad*2, h, 4); strokeWeight(1); noStroke(); }
   
   fill(255); textAlign(LEFT, TOP);
-  push();
+  // クリップ代わりの簡易表示
   if (h > 20) { textSize(11); textStyle(BOLD); text(e.title, x+pad+8, y+4); }
   if (h > 40) { textSize(10); textStyle(NORMAL); text(`${formatTime(e.start)}`, x+pad+8, y+20); }
-  pop();
 }
 
 function drawTaskList() {
@@ -434,7 +461,10 @@ function drawTaskCard(t, x, y, w, h) {
   fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL); text(`締切: ${t.deadline}`, x+20, y+h/2+10);
 }
 
-// --- 入力イベント ---
+// =========================================================
+//  5. インタラクション (入力・クリック)
+// =========================================================
+
 function setupKeyEvents() {
   document.getElementById('password-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') checkLogin(); });
   const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline'];
@@ -681,7 +711,7 @@ function loadData() {
       let nev = new Event(e.dateStr, e.start||0, e.duration||1, e.title||"", e.colorIdx||0, e.type !== undefined ? e.type : 0);
       nev.memo = e.memo || ""; return nev;
     });
-    // Sync Actuals for today/past
+    // 自動同期
     let today = new Date(); today.setHours(0,0,0,0);
     let actualKeys = new Set();
     events.filter(e => e.type === 1).forEach(e => actualKeys.add(e.dateStr + "_" + e.title));
