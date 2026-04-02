@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schedule & Task App (予実管理・完全版)</title>
+  <title>Schedule & Task App (月間カレンダー追加版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <style>
     /* スタイル設定 */
@@ -61,6 +61,7 @@
         <label id="label-title">タイトル</label>
         <input type="text" id="input-title">
       </div>
+      
       <div class="form-group" id="group-time">
         <label>時間 (例: 13:00)</label>
         <div class="time-inputs">
@@ -69,10 +70,16 @@
           <input type="time" id="input-end">
         </div>
       </div>
-      <div class="form-group" id="group-deadline" style="display:none;">
-        <label>締切日 (↑↓キーで変更可)</label>
-        <input type="date" id="input-deadline">
+      
+      <div class="form-group" id="group-task-date" style="display:none;">
+        <label>期間 (開始日 〜 締切日)</label>
+        <div class="time-inputs">
+          <input type="date" id="input-startdate">
+          <span>〜</span>
+          <input type="date" id="input-deadline">
+        </div>
       </div>
+
       <div class="form-group">
         <label>カラー</label>
         <div class="color-picker" id="color-picker"></div>
@@ -93,65 +100,7 @@
 
 <script>
 // =========================================================
-//  1. グローバル変数と定数の定義 (ここを最初に！)
-// =========================================================
-
-// デザイン定数
-const CONTROL_H = 60;
-const DATE_H = 50;
-const SIDEBAR_W = 70;
-const HOUR_H = 80;
-const RESIZE_MARGIN = 10;
-
-// カラー定数
-const COL_BG = '#F4F5F7';
-const COL_WHITE = '#FFFFFF';
-const COL_TEXT_MAIN = '#1F2937';
-const COL_TEXT_SUB = '#6B7280';
-const COL_LINE = '#E5E7EB';
-const COL_ACCENT = '#4F46E5';
-const COL_TODAY_BG = '#EEF2FF';
-
-const COL_DOING_BG = '#EEF2FF';
-const COL_BACKLOG_BG = '#F3F4F6';
-const COL_DONE_BG = '#E5E7EB';
-
-const EVENT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#6B7280'];
-const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6'];
-
-// 状態変数 (ここで宣言しておけば ReferenceError になりません)
-let showModal = false;
-let showTaskModal = false;
-let isLoggedIn = false;
-let isEditingDeadline = false;
-
-// データ配列
-let events = [];
-let backlogTasks = [];
-let doingTasks = [];
-let doneTasks = [];
-
-// カレンダー表示状態
-let viewStartDate;
-let visibleDays = 4;
-let scrollY = -600;
-let taskScrollY = 0;
-let currentMode = 0; // 0:Calendar, 1:Task
-
-// 操作系変数
-let selectedItem = null;
-let creatingEvent = null;
-let draggingItem = null;
-let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
-let dragOffsetTime = 0;
-let taskDragOffsetY = 0;
-let isTaskDragging = false;
-
-// ボタン管理配列
-const buttons = [];
-
-// =========================================================
-//  2. クラス定義
+//  1. クラス定義
 // =========================================================
 class Button {
   constructor(l, x, y, w, h, action, alignRight=false, color='#E5E7EB') {
@@ -173,26 +122,76 @@ class Event {
 }
 
 class Task {
-  constructor(title, deadline, memo, colorIdx) {
+  constructor(title, startDate, deadline, memo, colorIdx) {
     this.title = title; 
-    this.deadline = deadline; 
+    this.startDate = startDate; // ★追加：開始日
+    this.deadline = deadline;   // 締切日
     this.memo = memo; 
     this.colorIdx = colorIdx;
     this.completedDate = "";
-    this.status = 0; // 0:Doing, 1:Backlog, 2:Done
+    this.status = 1; // 0:Doing, 1:Backlog(新規はここ), 2:Done
   }
 }
 
 // =========================================================
-//  3. システム初期化 & p5.js関数
+//  2. グローバル定数と変数
 // =========================================================
+const CONTROL_H = 60;
+const DATE_H = 50;
+const SIDEBAR_W = 70;
+const HOUR_H = 80;
+const RESIZE_MARGIN = 10;
 
+const COL_BG = '#F4F5F7';
+const COL_WHITE = '#FFFFFF';
+const COL_TEXT_MAIN = '#1F2937';
+const COL_TEXT_SUB = '#6B7280';
+const COL_LINE = '#E5E7EB';
+const COL_ACCENT = '#4F46E5';
+const COL_TODAY_BG = '#EEF2FF';
+
+const COL_DOING_BG = '#EEF2FF';
+const COL_BACKLOG_BG = '#F3F4F6';
+const COL_DONE_BG = '#E5E7EB';
+
+const EVENT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#6B7280'];
+const TASK_COLORS = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6'];
+
+let events = [];
+let backlogTasks = [];
+let doingTasks = [];
+let doneTasks = [];
+
+let viewStartDate;
+let visibleDays = 4;
+let scrollY = -600;
+let taskScrollY = 0;
+
+// ★モード追加: 0=スケジュール, 1=タスクボード, 2=月間カレンダー
+let currentMode = 0; 
+let isLoggedIn = false;
+
+let selectedItem = null;
+let creatingEvent = null;
+let draggingItem = null;
+let dragAction = 0; 
+let dragOffsetTime = 0;
+let taskDragOffsetY = 0;
+let isTaskDragging = false;
+
+const buttons = [];
+let monthTaskRects = []; // 月間カレンダーでのクリック判定用
+let calStart_G = null;   // 月間カレンダーの左上の日付保持用
+
+// =========================================================
+//  3. 初期化処理
+// =========================================================
 function checkLogin() {
   const pass = document.getElementById('password-input').value;
   if (pass === 'jugerun') {
     document.getElementById('login-screen').style.display = 'none';
     isLoggedIn = true;
-    loop(); // 描画開始
+    loop();
   } else {
     document.getElementById('login-error').innerText = "パスワードが違います";
   }
@@ -209,7 +208,6 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   if (!isLoggedIn) noLoop();
   
-  // フォント設定 (Web標準)
   textFont('sans-serif');
   textStyle(NORMAL);
   
@@ -225,6 +223,9 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
 
+// =========================================================
+//  4. メイン描画処理
+// =========================================================
 function draw() {
   if (!isLoggedIn) return;
   
@@ -233,97 +234,130 @@ function draw() {
   drawControlBar();
 
   if (currentMode === 0) {
-    // --- カレンダーモード ---
-    let contentH = height - CONTROL_H - DATE_H;
-    
+    // --- スケジュールモード ---
     push();
     translate(0, CONTROL_H);
     drawDateHeader();
     translate(0, DATE_H);
     
-    // スクロール
     push();
     translate(0, scrollY);
-    
     drawTimeGrid();
     drawEvents();
     
-    // ドラッグ中の新規イベント
+    // 新規イベントドラッグ中
     if (dragAction === 1 && creatingEvent) {
-      let d = new Date(creatingEvent.dateStr);
-      let offset = getDayOffset(d);
+      let offset = getDayOffset(new Date(creatingEvent.dateStr));
       if (offset >= 0 && offset < visibleDays) {
-        let isSplit = isPastOrToday(d);
-        drawEventRect(creatingEvent, offset, isSplit);
+        drawEventRect(creatingEvent, offset, isPastOrToday(new Date(creatingEvent.dateStr)));
       }
     }
-    
-    pop(); 
-    pop();
-    
-    // マスク代わりの再描画
-    drawControlBar();
+    pop(); pop();
+    drawControlBar(); 
 
-  } else {
-    // --- タスクモード ---
+  } else if (currentMode === 1) {
+    // --- タスクボードモード ---
     push();
     translate(0, CONTROL_H);
     drawTaskList();
     pop();
     drawControlBar();
+    
+  } else if (currentMode === 2) {
+    // --- ★ 月間カレンダーモード ---
+    push();
+    translate(0, CONTROL_H);
+    drawMonthView();
+    pop();
+    drawControlBar();
   }
 }
 
 // =========================================================
-//  4. 描画ロジック
+//  5. コントロールバー & ボタン
 // =========================================================
-
 function drawControlBar() {
   noStroke(); fill(COL_WHITE); rect(0, 0, width, CONTROL_H);
   fill(0, 20); rect(0, CONTROL_H, width, 1);
-  fill(COL_TEXT_MAIN); textAlign(CENTER, CENTER); textSize(18); textStyle(BOLD);
   
-  if (currentMode === 0) {
-    let d = new Date(viewStartDate);
-    text(`${d.getFullYear()}年 ${d.getMonth()+1}月`, width/2, CONTROL_H/2);
-    drawButtons();
-  } else {
-    text("タスクボード (Doing / Backlog / Done)", width/2, CONTROL_H/2);
-    drawButtons();
+  // 左側の年月表示
+  fill(COL_TEXT_MAIN); textAlign(LEFT, CENTER); textSize(18); textStyle(BOLD);
+  let d = new Date(viewStartDate);
+  text(`${d.getFullYear()}年 ${d.getMonth()+1}月`, 20, CONTROL_H/2);
+  
+  // 中央のタブ
+  drawModeTabs();
+  
+  // 各種ボタン
+  drawButtons();
+}
+
+function drawModeTabs() {
+  let tabs = ["スケジュール", "タスクボード", "月間カレンダー"];
+  let tabW = 130;
+  let startX = width / 2 - (tabW * 3 + 20) / 2;
+  
+  for(let i=0; i<3; i++) {
+    let x = startX + i * (tabW + 10);
+    let y = 15;
+    
+    if (currentMode === i) { fill(COL_ACCENT); noStroke(); } 
+    else { fill(COL_WHITE); stroke(COL_LINE); }
+    rect(x, y, tabW, 30, 15);
+    
+    if (currentMode === i) fill(COL_WHITE); else fill(COL_TEXT_SUB);
+    noStroke(); textAlign(CENTER, CENTER); textSize(13); textStyle(BOLD);
+    text(tabs[i], x + tabW/2, y + 15);
   }
-  textStyle(NORMAL);
 }
 
 function setupButtons() {
-  buttons.length = 0; // Reset
-  addButton("<<", 20, 15, 40, 30, () => moveDate(-7));
-  addButton("<", 70, 15, 40, 30, () => moveDate(-1));
-  addButton("今日", 120, 15, 60, 30, () => { viewStartDate = new Date(); viewStartDate.setHours(0,0,0,0); });
-  addButton(">", 190, 15, 40, 30, () => moveDate(1));
-  addButton(">>", 240, 15, 40, 30, () => moveDate(7));
-  addButton("Day", -220, 15, 50, 30, () => visibleDays = 1, true);
-  addButton("4 Days", -160, 15, 60, 30, () => visibleDays = 4, true);
-  addButton("Week", -90, 15, 50, 30, () => visibleDays = 7, true);
-  addButton("ICS出力", -310, 15, 80, 30, exportICS, true, '#10B981');
-  addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
-  addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
+  buttons.length = 0;
+  
+  // 年月・週移動
+  addButton("<<", 160, 15, 30, 30, () => moveDate(-7));
+  addButton("<", 195, 15, 30, 30, () => moveDate(-1));
+  addButton("今日", 230, 15, 50, 30, () => { viewStartDate = new Date(); viewStartDate.setHours(0,0,0,0); });
+  addButton(">", 285, 15, 30, 30, () => moveDate(1));
+  addButton(">>", 320, 15, 30, 30, () => moveDate(7));
+  
+  // 表示日数 (スケジュール用)
+  addButton("1日", -200, 15, 40, 30, () => visibleDays = 1, true);
+  addButton("4日", -155, 15, 40, 30, () => visibleDays = 4, true);
+  addButton("7日", -110, 15, 40, 30, () => visibleDays = 7, true);
+  
+  addButton("ICS書出", -290, 15, 70, 30, exportICS, true, '#10B981');
 }
-function addButton(l, x, y, w, h, act, ar=false, col='#E5E7EB') {
-  buttons.push(new Button(l, x, y, w, h, act, ar, col));
-}
+
 function drawButtons() {
-  textSize(12);
+  textSize(12); textStyle(BOLD);
   buttons.forEach(b => {
+    // 表示の制御
+    if (currentMode !== 0 && ['1日', '4日', '7日'].includes(b.label)) return;
+    if (currentMode === 2 && ['<<', '>>'].includes(b.label)) return; // 月間の時は週移動は不要とする
+    
     let bx = b.alignRight ? width + b.x : b.x;
-    if (currentMode === 1) { if (['Day', '4 Days', 'Week', '<<', '<', '>', '>>', '今日'].includes(b.label)) return; }
     fill(b.color); noStroke(); rect(bx, b.y, b.w, b.h, 5);
     fill(b.color === '#E5E7EB' ? COL_TEXT_SUB : 'white');
-    let txt = b.label;
-    if (b.label === "モード切替") txt = currentMode === 0 ? "タスク一覧へ" : "カレンダーへ";
-    textAlign(CENTER, CENTER); text(txt, bx + b.w/2, b.y + b.h/2);
+    textAlign(CENTER, CENTER); text(b.label, bx + b.w/2, b.y + b.h/2);
   });
 }
 
+function moveDate(amount) {
+  if (currentMode === 2) {
+    // 月間モードの場合は「月」を移動させる (+1 or -1)
+    if (amount === 1 || amount === -1) {
+      viewStartDate.setMonth(viewStartDate.getMonth() + amount);
+    }
+  } else {
+    // それ以外は日数を移動
+    viewStartDate.setDate(viewStartDate.getDate() + amount);
+  }
+}
+
+// =========================================================
+//  6. スケジュールモード (0) の描画
+// =========================================================
 function drawDateHeader() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
@@ -341,27 +375,18 @@ function drawDateHeader() {
   fill(COL_BG); rect(0, 0, SIDEBAR_W, DATE_H);
 }
 
-// ★ 予実管理対応 TimeGrid
 function drawTimeGrid() {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let d = new Date(viewStartDate);
   let today = new Date(); today.setHours(0,0,0,0);
-  
   noStroke();
   for (let i = 0; i < visibleDays; i++) {
     let x = SIDEBAR_W + i * colW;
-    let isSplit = d <= today; // 今日・過去は分割
-    
+    let isSplit = d <= today;
     if (isSameDate(d, today)) { fill(COL_TODAY_BG); rect(x, 0, colW, 24 * HOUR_H); }
-    
-    // 分割線
-    if (isSplit) {
-      stroke(COL_LINE);
-      line(x + colW/2, 0, x + colW/2, 24 * HOUR_H);
-    }
+    if (isSplit) { stroke(COL_LINE); line(x + colW/2, 0, x + colW/2, 24 * HOUR_H); }
     d.setDate(d.getDate() + 1);
   }
-  
   textAlign(RIGHT, CENTER); textSize(11); fill(COL_TEXT_SUB);
   for (let i = 0; i <= 24; i++) {
     let y = i * HOUR_H; stroke(COL_LINE); line(SIDEBAR_W, y, width, y); noStroke(); text(`${i}:00`, SIDEBAR_W - 10, y);
@@ -370,16 +395,13 @@ function drawTimeGrid() {
   stroke(COL_LINE); for (let i = 0; i <= visibleDays; i++) line(SIDEBAR_W + i * colW, 0, SIDEBAR_W + i * colW, 24 * HOUR_H);
 }
 
-// ★ 予実管理対応 Event描画
 function drawEvents() {
   let today = new Date(); today.setHours(0,0,0,0);
   for (let e of events) {
     let d = new Date(e.dateStr); d.setHours(0,0,0,0);
     let offset = getDayOffset(d);
-    
     if (offset >= 0 && offset < visibleDays) {
-      let isSplit = d <= today;
-      drawEventRect(e, offset, isSplit);
+      drawEventRect(e, offset, d <= today);
     }
   }
 }
@@ -388,37 +410,26 @@ function drawEventRect(e, offset, isSplit) {
   let colW = (width - SIDEBAR_W) / visibleDays;
   let x = SIDEBAR_W + offset * colW;
   let w = colW;
+  if (isSplit) { w = colW / 2; if (e.type === 1) x += w; } 
+  else { if (e.type === 1) return; }
   
-  // type 0:Plan, 1:Actual
-  if (isSplit) {
-    w = colW / 2;
-    if (e.type === 1) x += w; // Actualは右側
-  } else {
-    if (e.type === 1) return; // 未来の実績は非表示
-  }
-  
-  let y = e.start * HOUR_H;
-  let h = e.duration * HOUR_H;
-  let pad = 4;
-  
+  let y = e.start * HOUR_H; let h = e.duration * HOUR_H; let pad = 4;
   noStroke(); fill(0, 20); rect(x+pad+2, y+2, w-pad*2, h, 4);
   
   fill(EVENT_COLORS[e.colorIdx]);
-  // 実績は少し見た目を変える（枠線）
   if (e.type === 1) { stroke(255, 150); strokeWeight(2); } else { noStroke(); }
+  rect(x+pad, y, w-pad*2, h, 4); noStroke(); strokeWeight(1);
   
-  rect(x+pad, y, w-pad*2, h, 4); 
-  noStroke(); strokeWeight(1);
   fill(0, 50); rect(x+pad, y, 5, h, 4, 0, 0, 4);
-  
   if (e === selectedItem) { noFill(); stroke(0); strokeWeight(2); rect(x+pad, y, w-pad*2, h, 4); strokeWeight(1); noStroke(); }
-  
   fill(255); textAlign(LEFT, TOP);
-  // クリップ代わりの簡易表示
   if (h > 20) { textSize(11); textStyle(BOLD); text(e.title, x+pad+8, y+4); }
   if (h > 40) { textSize(10); textStyle(NORMAL); text(`${formatTime(e.start)}`, x+pad+8, y+20); }
 }
 
+// =========================================================
+//  7. タスクボードモード (1) の描画
+// =========================================================
 function drawTaskList() {
   let fullH = height - CONTROL_H; let colW = width / 3;
   noStroke();
@@ -426,16 +437,20 @@ function drawTaskList() {
   fill(COL_BACKLOG_BG); rect(colW, 0, colW, fullH);
   fill(COL_DONE_BG);    rect(colW*2, 0, colW, fullH);
   stroke(COL_LINE); strokeWeight(2); line(colW, 0, colW, fullH); line(colW*2, 0, colW*2, fullH); strokeWeight(1);
+  
   fill(COL_TEXT_SUB); textAlign(CENTER, TOP); textSize(14); textStyle(BOLD);
   text(`現在取り組んでいること (${doingTasks.length})`, colW/2, 10);
   text(`今後増えること (${backlogTasks.length})`, colW*1.5, 10);
   text(`終わったもの (${doneTasks.length})`, colW*2.5, 10);
+  
   push(); translate(0, taskScrollY);
   let itemH = 60; let margin = 40; let gap = 10; let cardW = colW - 30;
+  
   drawTaskItems(doingTasks, 15, margin, cardW, itemH, gap);
   drawTaskItems(backlogTasks, colW + 15, margin, cardW, itemH, gap);
   drawTaskItems(doneTasks, colW*2 + 15, margin, cardW, itemH, gap, true);
   pop();
+  
   if (isTaskDragging && draggingItem) {
     drawTaskCard(draggingItem, mouseX - cardW/2, mouseY - CONTROL_H + taskDragOffsetY, cardW, itemH);
   }
@@ -458,24 +473,201 @@ function drawTaskCard(t, x, y, w, h) {
   fill(TASK_COLORS[t.colorIdx]); rect(x, y, 8, h, 8, 0, 0, 8);
   if (t === selectedItem) { noFill(); stroke(COL_ACCENT); strokeWeight(2); rect(x, y, w, h, 8); strokeWeight(1); noStroke(); }
   fill(COL_TEXT_MAIN); textAlign(LEFT, CENTER); textSize(14); textStyle(BOLD); text(t.title, x+20, y+h/2-8);
-  fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL); text(`締切: ${t.deadline}`, x+20, y+h/2+10);
+  
+  // 期間表示
+  let dateText = `${formatMMDD(t.startDate)} ~ ${formatMMDD(t.deadline)}`;
+  if (t.startDate === t.deadline) dateText = `締切: ${formatMMDD(t.deadline)}`;
+  
+  fill(COL_TEXT_SUB); textSize(11); textStyle(NORMAL); text(dateText, x+20, y+h/2+10);
 }
 
 // =========================================================
-//  5. インタラクション (入力・クリック)
+//  8. ★月間カレンダーモード (2) の描画
+// =========================================================
+function drawMonthView() {
+  let w = width;
+  let h = height - CONTROL_H;
+  let colW = w / 7;
+  let rowH = h / 6;
+  
+  let targetYear = viewStartDate.getFullYear();
+  let targetMonth = viewStartDate.getMonth();
+  let monthStart = new Date(targetYear, targetMonth, 1);
+  let startDay = monthStart.getDay(); // 0(Sun) - 6(Sat)
+  
+  let calStart = new Date(monthStart);
+  calStart.setDate(calStart.getDate() - startDay);
+  calStart_G = new Date(calStart); // グローバル保存(クリック逆算用)
+  
+  let today = new Date(); today.setHours(0,0,0,0);
+  
+  // グリッドと日付
+  stroke(COL_LINE); strokeWeight(1);
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 7; col++) {
+      let x = col * colW;
+      let y = row * rowH;
+      let d = new Date(calStart);
+      d.setDate(d.getDate() + row * 7 + col);
+      
+      // 背景色
+      if (isSameDate(d, today)) fill(COL_TODAY_BG);
+      else if (d.getMonth() !== targetMonth) fill('#FAFAFA'); // 当月外
+      else fill(COL_WHITE);
+      rect(x, y, colW, rowH);
+      
+      // 日付テキスト
+      fill(d.getMonth() === targetMonth ? COL_TEXT_MAIN : '#A0AABBAA');
+      if (col === 0) fill('#EF4444'); // 日
+      if (col === 6) fill('#3B82F6'); // 土
+      
+      textAlign(LEFT, TOP); textSize(12); textStyle(BOLD);
+      let dateTxt = d.getDate();
+      if (d.getDate() === 1) dateTxt = (d.getMonth()+1) + "/" + dateTxt;
+      text(dateTxt, x + 5, y + 5);
+      
+      // 曜日
+      if (row === 0) {
+        textAlign(RIGHT, TOP); textSize(11); textStyle(NORMAL); fill(COL_TEXT_SUB);
+        text(getDayName(col), x + colW - 5, y + 5);
+      }
+    }
+  }
+  
+  // タスク帯の描画
+  drawMonthTasks(calStart, colW, rowH);
+}
+
+function drawMonthTasks(calStart, colW, rowH) {
+  monthTaskRects = [];
+  let calEnd = new Date(calStart);
+  calEnd.setDate(calEnd.getDate() + 41); // 6週=42日
+  
+  // 全タスク収集
+  let allTasks = [].concat(doingTasks, backlogTasks, doneTasks);
+  
+  // 画面内のタスクをフィルタ
+  let visibleTasks = allTasks.filter(t => {
+    let s = new Date(t.startDate); s.setHours(0,0,0,0);
+    let e = new Date(t.deadline); e.setHours(0,0,0,0);
+    if (e < s) { let tmp=s; s=e; e=tmp; }
+    return (s <= calEnd && e >= calStart);
+  });
+  
+  // ソート (開始日順、期間が長い順)
+  visibleTasks.sort((a, b) => {
+    let as = new Date(a.startDate); let bs = new Date(b.startDate);
+    if (as.getTime() !== bs.getTime()) return as - bs;
+    let ae = new Date(a.deadline); let be = new Date(b.deadline);
+    return (be - bs) - (ae - as);
+  });
+  
+  let slotMap = {}; // "YYYY-MM-DD" -> [使用中フラグ配列]
+  
+  visibleTasks.forEach(t => {
+    let s = new Date(t.startDate); s.setHours(0,0,0,0);
+    let e = new Date(t.deadline); e.setHours(0,0,0,0);
+    if (e < s) { let tmp=s; s=e; e=tmp; }
+    
+    let drawS = new Date(Math.max(s, calStart));
+    let drawE = new Date(Math.min(e, calEnd));
+    
+    // 空きスロット探索
+    let slot = 0;
+    let found = false;
+    while (!found) {
+      let isFree = true;
+      let curr = new Date(drawS);
+      while (curr <= drawE) {
+        let key = formatDateISO(curr);
+        if (slotMap[key] && slotMap[key][slot]) { isFree = false; break; }
+        curr.setDate(curr.getDate() + 1);
+      }
+      if (isFree) found = true; else slot++;
+    }
+    
+    // スロット予約
+    let curr = new Date(drawS);
+    while (curr <= drawE) {
+      let key = formatDateISO(curr);
+      if (!slotMap[key]) slotMap[key] = [];
+      slotMap[key][slot] = true;
+      curr.setDate(curr.getDate() + 1);
+    }
+    
+    // 描画処理 (週をまたぐ場合は分割して描画)
+    curr = new Date(drawS);
+    while (curr <= drawE) {
+      let dOffset = getDayDiff(calStart, curr);
+      let col = dOffset % 7;
+      let row = Math.floor(dOffset / 7);
+      
+      let remainWeek = 7 - col;
+      let remainTask = getDayDiff(curr, drawE) + 1;
+      let drawDays = Math.min(remainWeek, remainTask);
+      
+      let x = col * colW;
+      let y = row * rowH + 25 + slot * 20; // 25は日付テキストの高さ
+      let w = drawDays * colW;
+      
+      // 枠内に収まるスロットだけ描画
+      if (y + 18 < row * rowH + rowH) {
+        let colHex = TASK_COLORS[t.colorIdx];
+        
+        // 完了済みは少し透明に
+        if (t.status === 2) {
+          fill(hexToRgba(colHex, 0.4)); stroke(colHex); strokeWeight(1);
+        } else {
+          fill(colHex); noStroke();
+        }
+        
+        rect(x + 2, y, w - 4, 18, 4);
+        
+        // テキスト表示 (帯の左端のみ)
+        if (curr.getTime() === drawS.getTime() || col === 0) {
+          fill(t.status === 2 ? COL_TEXT_MAIN : 255);
+          textAlign(LEFT, CENTER); textSize(11); textStyle(BOLD);
+          text(t.title, x + 6, y + 9);
+        }
+        
+        // クリック判定用保存
+        monthTaskRects.push({ task: t, x: x, y: y, w: w, h: 18 });
+      }
+      curr.setDate(curr.getDate() + drawDays);
+    }
+  });
+}
+
+// =========================================================
+//  9. 入力・インタラクション処理
 // =========================================================
 
+// キー操作
 function setupKeyEvents() {
   document.getElementById('password-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') checkLogin(); });
-  const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline'];
-  inputs.forEach(id => { document.getElementById(id).addEventListener('keydown', function(e) { if (e.key === 'Enter') saveItem(); }); });
-  document.getElementById('input-deadline').addEventListener('keydown', function(e) { if (e.key === 'ArrowUp') { changeDate(1); e.preventDefault(); } else if (e.key === 'ArrowDown') { changeDate(-1); e.preventDefault(); } });
+  const inputs = ['input-title', 'input-start', 'input-end', 'input-startdate', 'input-deadline'];
+  inputs.forEach(id => { 
+    if(document.getElementById(id)) {
+      document.getElementById(id).addEventListener('keydown', function(e) { if (e.key === 'Enter') saveItem(); });
+    }
+  });
+  // 日付の上下キー
+  let dl = document.getElementById('input-deadline');
+  if(dl) dl.addEventListener('keydown', function(e) { if (e.key === 'ArrowUp') { changeDate('input-deadline', 1); e.preventDefault(); } else if (e.key === 'ArrowDown') { changeDate('input-deadline', -1); e.preventDefault(); } });
+  let st = document.getElementById('input-startdate');
+  if(st) st.addEventListener('keydown', function(e) { if (e.key === 'ArrowUp') { changeDate('input-startdate', 1); e.preventDefault(); } else if (e.key === 'ArrowDown') { changeDate('input-startdate', -1); e.preventDefault(); } });
 }
-function changeDate(delta) { let input = document.getElementById('input-deadline'); if (input.value) { let d = new Date(input.value); d.setDate(d.getDate() + delta); input.value = formatDateISO(d); } }
 
+function changeDate(id, delta) {
+  let input = document.getElementById(id);
+  if (input.value) { let d = new Date(input.value); d.setDate(d.getDate() + delta); input.value = formatDateISO(d); }
+}
+
+// ダブルクリック
 function doubleClicked() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (mouseY < CONTROL_H) return;
+
   if (currentMode === 0) {
     let colW = (width - SIDEBAR_W) / visibleDays;
     let today = new Date(); today.setHours(0,0,0,0);
@@ -484,34 +676,62 @@ function doubleClicked() {
       let d = new Date(e.dateStr); d.setHours(0,0,0,0);
       let offset = getDayOffset(d);
       if (offset < 0 || offset >= visibleDays) continue;
+      
       let isSplit = d <= today;
       let w = isSplit ? colW / 2 : colW;
       let x = SIDEBAR_W + offset * colW;
       if (isSplit && e.type === 1) x += w;
       if (!isSplit && e.type === 1) continue;
+      
       let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
       let h = e.duration * HOUR_H;
       if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) { openModal(e, 'event'); return false; }
     }
-  } else {
+  } else if (currentMode === 1) {
     let colW = width / 3; let itemH = 60; let margin = 40; let gap = 10;
     let zone = Math.floor(mouseX / colW);
     let targetList = (zone===0) ? doingTasks : (zone===1) ? backlogTasks : doneTasks;
     let localY = mouseY - CONTROL_H - taskScrollY - margin;
     let index = Math.floor(localY / (itemH + gap));
     if (index >= 0 && index < targetList.length) { openModal(targetList[index], 'task'); return false; }
+  } else if (currentMode === 2) {
+    // 月間カレンダーのダブルクリック
+    let localY = mouseY - CONTROL_H;
+    for (let r of monthTaskRects) {
+      if (mouseX >= r.x && mouseX <= r.x + r.w && localY >= r.y && localY <= r.y + r.h) {
+        openModal(r.task, 'task'); return false;
+      }
+    }
   }
 }
 
+// マウスクリック
 function mousePressed() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (!isLoggedIn) return;
+  
+  // ボタン判定 (タブ含む)
   let btnClicked = false;
+  
+  // モードタブ判定
+  let tabW = 130; let startX = width / 2 - (tabW * 3 + 20) / 2;
+  if (mouseY >= 15 && mouseY <= 45) {
+    for(let i=0; i<3; i++) {
+      let x = startX + i * (tabW + 10);
+      if(mouseX >= x && mouseX <= x + tabW) {
+        currentMode = i; btnClicked = true; break;
+      }
+    }
+  }
+  
   buttons.forEach(b => {
     let bx = b.alignRight ? width + b.x : b.x;
-    if (currentMode === 1) { if (['Day','4 Days','Week','<<','<','>','>>','今日'].includes(b.label)) return; }
+    if (currentMode !== 0 && ['1日','4日','7日'].includes(b.label)) return;
+    if (currentMode === 2 && ['<<','>>'].includes(b.label)) return;
+    
     if (mouseX >= bx && mouseX <= bx + b.w && mouseY >= b.y && mouseY <= b.y + b.h) { b.action(); btnClicked = true; }
   });
+  
   if (btnClicked) return;
   if (mouseY < CONTROL_H) return;
 
@@ -524,8 +744,10 @@ function mousePressed() {
     let d = new Date(viewStartDate); d.setDate(d.getDate() + dayIndex); d.setHours(0,0,0,0);
     let today = new Date(); today.setHours(0,0,0,0);
     let isSplit = d <= today;
+    
     let clickedType = 0; 
     if (isSplit) { let relX = (mouseX - SIDEBAR_W) % colW; if (relX > colW/2) clickedType = 1; }
+    
     let clicked = null;
     for (let i = events.length - 1; i >= 0; i--) {
       let e = events[i];
@@ -534,10 +756,12 @@ function mousePressed() {
       if (offset < 0 || offset >= visibleDays) continue;
       if (isSplit && e.type !== clickedType) continue;
       if (!isSplit && e.type === 1) continue;
+      
       let w = isSplit ? colW/2 : colW;
       let x = SIDEBAR_W + offset * colW + (e.type===1 && isSplit ? w : 0);
       let y = CONTROL_H + DATE_H + scrollY + e.start * HOUR_H;
       let h = e.duration * HOUR_H;
+      
       if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) {
         clicked = e;
         let relY = mouseY - y;
@@ -546,6 +770,7 @@ function mousePressed() {
         break;
       }
     }
+    
     if (clicked) { selectedItem = clicked; } 
     else {
       if (dayIndex >= 0 && dayIndex < visibleDays && timeVal >= 0 && timeVal < 24) {
@@ -554,7 +779,7 @@ function mousePressed() {
         selectedItem = creatingEvent; dragAction = 1;
       }
     }
-  } else {
+  } else if (currentMode === 1) {
     let colW = width / 3; let itemH = 60; let margin = 40; let gap = 10;
     let localY = mouseY - CONTROL_H - taskScrollY - margin;
     let index = Math.floor(localY / (itemH + gap));
@@ -567,8 +792,33 @@ function mousePressed() {
       taskDragOffsetY = itemTop - (mouseY - CONTROL_H);
     } else {
       if (zone !== 2) {
-        let newTask = new Task("新しいタスク", formatDateISO(new Date()), "", 2);
+        let newTask = new Task("新しいタスク", formatDateISO(new Date()), formatDateISO(new Date()), "", 2);
+        newTask.status = zone; // 配置したゾーンに合わせる
         targetList.push(newTask); selectedItem = newTask; openModal(newTask, 'task'); saveData();
+      }
+    }
+  } else if (currentMode === 2) {
+    // 月間カレンダー
+    let localY = mouseY - CONTROL_H;
+    let hit = null;
+    for (let r of monthTaskRects) {
+      if (mouseX >= r.x && mouseX <= r.x + r.w && localY >= r.y && localY <= r.y + r.h) {
+        hit = r.task; break;
+      }
+    }
+    if (hit) {
+      selectedItem = hit;
+    } else {
+      // 空白クリックで新規作成
+      let colW = width / 7; let rowH = (height - CONTROL_H) / 6;
+      let col = Math.floor(mouseX / colW);
+      let row = Math.floor(localY / rowH);
+      if (row >= 0 && row < 6 && col >= 0 && col < 7) {
+        let d = new Date(calStart_G); d.setDate(d.getDate() + row * 7 + col);
+        let newTask = new Task("新しいタスク", formatDateISO(d), formatDateISO(d), "", 2);
+        newTask.status = 1; // デフォルトはBacklogへ
+        backlogTasks.push(newTask);
+        selectedItem = newTask; openModal(newTask, 'task'); saveData();
       }
     }
   }
@@ -606,7 +856,6 @@ function mouseReleased() {
   if (currentMode === 0) {
     if (dragAction === 1 && creatingEvent) {
       events.push(creatingEvent); selectedItem = creatingEvent;
-      // 自動コピー処理 (Plan->Actual)
       let d = new Date(creatingEvent.dateStr); d.setHours(0,0,0,0);
       let today = new Date(); today.setHours(0,0,0,0);
       if (creatingEvent.type === 0 && d <= today) {
@@ -616,10 +865,12 @@ function mouseReleased() {
       openModal(selectedItem, 'event'); creatingEvent = null;
     }
     dragAction = 0; saveData();
-  } else {
+  } else if (currentMode === 1) {
     if (isTaskDragging && draggingItem) {
       let colW = width / 3; let dropZone = Math.floor(mouseX / colW);
       removeFromAllLists(draggingItem);
+      
+      draggingItem.status = dropZone; // 状態更新
       if (dropZone === 0) { doingTasks.push(draggingItem); draggingItem.completedDate = ""; }
       else if (dropZone === 1) { backlogTasks.push(draggingItem); draggingItem.completedDate = ""; }
       else { doneTasks.unshift(draggingItem); if (!draggingItem.completedDate) draggingItem.completedDate = formatDateISO(new Date()); }
@@ -635,7 +886,7 @@ function mouseWheel(event) {
     scrollY -= d;
     let maxH = 24 * HOUR_H; let viewH = height - CONTROL_H - DATE_H;
     if (scrollY > 0) scrollY = 0; if (scrollY < viewH - maxH) scrollY = viewH - maxH;
-  } else {
+  } else if (currentMode === 1) {
     taskScrollY -= d;
     if (taskScrollY > 0) taskScrollY = 0;
     let maxCount = Math.max(doingTasks.length, backlogTasks.length, doneTasks.length);
@@ -646,7 +897,10 @@ function mouseWheel(event) {
   }
 }
 
-// --- Utils ---
+// =========================================================
+//  10. モーダル & データ入出力処理
+// =========================================================
+
 function openModal(item, type) {
   selectedItem = item;
   let modal = document.getElementById('modal-overlay');
@@ -662,8 +916,7 @@ function openModal(item, type) {
     div.className = 'color-circle' + (idx === item.colorIdx ? ' selected' : '');
     div.style.backgroundColor = c;
     div.onclick = () => {
-      item.colorIdx = idx;
-      headerBar.style.background = c;
+      item.colorIdx = idx; headerBar.style.background = c;
       Array.from(colorPicker.children).forEach((child, i) => {
         if(i === idx) child.classList.add('selected'); else child.classList.remove('selected');
       });
@@ -672,16 +925,16 @@ function openModal(item, type) {
   });
   headerBar.style.background = colors[item.colorIdx];
   if (type === 'event') {
-    let label = document.getElementById('label-title');
-    label.innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
+    document.getElementById('label-title').innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
     document.getElementById('group-time').style.display = 'block';
-    document.getElementById('group-deadline').style.display = 'none';
+    document.getElementById('group-task-date').style.display = 'none';
     document.getElementById('input-start').value = formatTimeInput(item.start);
     document.getElementById('input-end').value = formatTimeInput(item.start + item.duration);
   } else {
     document.getElementById('label-title').innerText = "タスク名";
     document.getElementById('group-time').style.display = 'none';
-    document.getElementById('group-deadline').style.display = 'block';
+    document.getElementById('group-task-date').style.display = 'block';
+    document.getElementById('input-startdate').value = item.startDate;
     document.getElementById('input-deadline').value = item.deadline;
   }
 }
@@ -689,11 +942,15 @@ function saveItem() {
   if (!selectedItem) return;
   selectedItem.title = document.getElementById('input-title').value;
   selectedItem.memo = document.getElementById('input-memo').value;
-  if (currentMode === 0) {
+  
+  if (currentMode === 0) { // Event
     let s = parseTimeInput(document.getElementById('input-start').value);
     let e = parseTimeInput(document.getElementById('input-end').value);
     if (s >= 0 && e > s) { selectedItem.start = s; selectedItem.duration = e - s; }
-  } else { selectedItem.deadline = document.getElementById('input-deadline').value; }
+  } else { // Task
+    selectedItem.startDate = document.getElementById('input-startdate').value;
+    selectedItem.deadline = document.getElementById('input-deadline').value;
+  }
   saveData(); closeModal();
 }
 function deleteItem() {
@@ -703,6 +960,7 @@ function deleteItem() {
 }
 function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
 function toggleMode() { currentMode = (currentMode === 0) ? 1 : 0; }
+
 function loadData() {
   let svE = localStorage.getItem('calendar_events'); 
   if(svE) {
@@ -711,28 +969,19 @@ function loadData() {
       let nev = new Event(e.dateStr, e.start||0, e.duration||1, e.title||"", e.colorIdx||0, e.type !== undefined ? e.type : 0);
       nev.memo = e.memo || ""; return nev;
     });
-    // 自動同期
-    let today = new Date(); today.setHours(0,0,0,0);
-    let actualKeys = new Set();
-    events.filter(e => e.type === 1).forEach(e => actualKeys.add(e.dateStr + "_" + e.title));
-    let newActuals = [];
-    events.forEach(e => {
-      if(e.type === 0) {
-        let d = new Date(e.dateStr); d.setHours(0,0,0,0);
-        if(d <= today) {
-          let key = e.dateStr + "_" + e.title;
-          if(!actualKeys.has(key)) {
-            let cp = new Event(e.dateStr, e.start, e.duration, e.title, e.colorIdx, 1);
-            cp.memo = e.memo; newActuals.push(cp);
-          }
-        }
-      }
-    });
-    events = events.concat(newActuals);
   }
-  let svB = localStorage.getItem('task_backlog'); if(svB) backlogTasks = JSON.parse(svB).map(t => Object.assign(new Task(), t));
-  let svD = localStorage.getItem('task_doing'); if(svD) doingTasks = JSON.parse(svD).map(t => Object.assign(new Task(), t));
-  let svF = localStorage.getItem('task_done'); if(svF) doneTasks = JSON.parse(svF).map(t => Object.assign(new Task(), t));
+  
+  // タスク初期化用関数（互換性担保）
+  let initTask = (t) => {
+    let task = Object.assign(new Task(), t);
+    if (!task.startDate) task.startDate = task.deadline || formatDateISO(new Date());
+    return task;
+  };
+  
+  let svB = localStorage.getItem('task_backlog'); if(svB) backlogTasks = JSON.parse(svB).map(initTask);
+  let svD = localStorage.getItem('task_doing'); if(svD) doingTasks = JSON.parse(svD).map(initTask);
+  let svF = localStorage.getItem('task_done'); if(svF) doneTasks = JSON.parse(svF).map(initTask);
+  
   let oneWeekAgo = new Date(); oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   doneTasks = doneTasks.filter(t => { if (!t.completedDate) return true; return new Date(t.completedDate) >= oneWeekAgo; });
 }
@@ -742,38 +991,38 @@ function saveData() {
   localStorage.setItem('task_doing', JSON.stringify(doingTasks));
   localStorage.setItem('task_done', JSON.stringify(doneTasks));
 }
-function moveDate(days) { viewStartDate.setDate(viewStartDate.getDate() + days); }
+
+// --- Utils ---
 function getDayOffset(date) { let diff = date - viewStartDate; return Math.floor(diff / (1000 * 60 * 60 * 24)); }
+function getDayDiff(d1, d2) { return Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)); }
 function isSameDate(d1, d2) { return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate(); }
 function isPastOrToday(d) { let today = new Date(); today.setHours(0,0,0,0); d.setHours(0,0,0,0); return d <= today; }
 function formatDateISO(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function formatMMDD(iso) { let p=iso.split('-'); return `${p[1]}/${p[2]}`; }
 function formatTime(val) { let h = Math.floor(val); let m = Math.round((val - h) * 60); return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
 function formatTimeInput(val) { return formatTime(val); }
 function parseTimeInput(str) { let parts = str.split(':'); if (parts.length === 2) return parseInt(parts[0]) + parseInt(parts[1])/60; return 0; }
 function snapTo15Min(val) { return Math.round(val / 0.25) * 0.25; }
 function removeFromAllLists(t) { backlogTasks = backlogTasks.filter(x => x !== t); doingTasks = doingTasks.filter(x => x !== t); doneTasks = doneTasks.filter(x => x !== t); }
 function getDayName(i) { return ['日','月','火','水','木','金','土'][i]; }
-function updateCursor() { if (showModal) { cursor(ARROW); return; } if (currentMode === 0) { if (dragAction === 2) cursor(MOVE); else if (dragAction >= 3) cursor(HAND); else cursor(ARROW); } else { cursor(isTaskDragging ? MOVE : ARROW); } }
+function hexToRgba(hex, a) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function updateCursor() { if (showModal) { cursor(ARROW); return; } if (currentMode === 0) { if (dragAction === 2) cursor(MOVE); else if (dragAction >= 3) cursor(HAND); else cursor(ARROW); } else if (currentMode===1) { cursor(isTaskDragging ? MOVE : ARROW); } else { cursor(ARROW); } }
 
 function exportICS() {
   let calContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//My Web App//EN\n";
   events.forEach(e => {
     if (e.type === 1) return;
-    let d = new Date(e.dateStr);
-    let sH = Math.floor(e.start); let sM = Math.round((e.start - sH) * 60);
-    let eH = Math.floor(e.start + e.duration); let eM = Math.round((e.start + e.duration - eH) * 60);
+    let d = new Date(e.dateStr); let sH = Math.floor(e.start); let sM = Math.round((e.start - sH) * 60); let eH = Math.floor(e.start + e.duration); let eM = Math.round((e.start + e.duration - eH) * 60);
     let dtStart = formatICSDate(d, sH, sM); let dtEnd = formatICSDate(d, eH, eM);
     calContent += "BEGIN:VEVENT\n" + `DTSTART:${dtStart}\n` + `DTEND:${dtEnd}\n` + `SUMMARY:${e.title}\n` + `DESCRIPTION:${e.memo.replace(/\n/g, '\\n')}\n` + "END:VEVENT\n";
   });
   calContent += "END:VCALENDAR";
-  let blob = new Blob([calContent], { type: 'text/calendar' });
-  let url = URL.createObjectURL(blob); let a = document.createElement('a'); a.href = url; a.download = 'schedule.ics'; a.click();
+  let blob = new Blob([calContent], { type: 'text/calendar' }); let url = URL.createObjectURL(blob); let a = document.createElement('a'); a.href = url; a.download = 'schedule.ics'; a.click();
 }
-document.getElementById('file-input').addEventListener('change', function(e) {
-  let file = e.target.files[0]; if (!file) return;
-  let reader = new FileReader();
-  reader.onload = function(e) { parseICS(e.target.result); }; reader.readAsText(file);
-});
+document.getElementById('file-input').addEventListener('change', function(e) { let file = e.target.files[0]; if (!file) return; let reader = new FileReader(); reader.onload = function(e) { parseICS(e.target.result); }; reader.readAsText(file); });
 function parseICS(text) {
   let lines = text.split(/\r\n|\n|\r/); let inEvent = false; let tempEvent = {};
   lines.forEach(line => {
@@ -782,21 +1031,12 @@ function parseICS(text) {
     else if (inEvent) {
       if (line.startsWith('SUMMARY:')) tempEvent.title = line.substring(8);
       else if (line.startsWith('DESCRIPTION:')) tempEvent.memo = line.substring(12).replace(/\\n/g, '\n');
-      else if (line.startsWith('DTSTART')) {
-        let val = line.split(':')[1]; let p = parseICSDate(val);
-        tempEvent.dateStr = formatDateISO(p.d); tempEvent.start = p.h + p.m/60;
-      }
+      else if (line.startsWith('DTSTART')) { let val = line.split(':')[1]; let p = parseICSDate(val); tempEvent.dateStr = formatDateISO(p.d); tempEvent.start = p.h + p.m/60; }
     }
-  });
-  saveData(); alert('インポート完了');
+  }); saveData(); alert('インポート完了');
 }
 function formatICSDate(d, h, m) { return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}T${String(h).padStart(2,'0')}${String(m).padStart(2,'0')}00`; }
-function parseICSDate(str) {
-  let y = parseInt(str.substring(0,4)); let m = parseInt(str.substring(4,6))-1; let d = parseInt(str.substring(6,8));
-  let h = 0, min = 0;
-  if (str.includes('T')) { let tPart = str.split('T')[1]; h = parseInt(tPart.substring(0,2)); min = parseInt(tPart.substring(2,4)); }
-  return { d: new Date(y,m,d), h: h, m: min };
-}
+function parseICSDate(str) { let y = parseInt(str.substring(0,4)); let m = parseInt(str.substring(4,6))-1; let d = parseInt(str.substring(6,8)); let h = 0, min = 0; if (str.includes('T')) { let tPart = str.split('T')[1]; h = parseInt(tPart.substring(0,2)); min = parseInt(tPart.substring(2,4)); } return { d: new Date(y,m,d), h: h, m: min }; }
 </script>
 </body>
 </html>
