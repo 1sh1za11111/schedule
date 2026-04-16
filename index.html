@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Schedule & Task App (予実管理・完全版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     /* スタイル設定 */
     body { margin: 0; padding: 0; overflow: hidden; font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; background-color: #F4F5F7; }
@@ -125,10 +126,10 @@ const LEGACY_EVENT_KEY = 'calendar_events';
 const LEGACY_BACKLOG_KEY = 'task_backlog';
 const LEGACY_DOING_KEY = 'task_doing';
 const LEGACY_DONE_KEY = 'task_done';
-const SHARED_HANDLE_DB = 'schedule_app_db';
-const SHARED_HANDLE_STORE = 'handles';
-const SHARED_HANDLE_KEY = 'shared_schedule_file';
-const SHARED_FILENAME = 'schedule-data.json';
+const SUPABASE_URL = 'https://hmfofilydcplgbzktcpc.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_8l_QOufaBpxoiT0pQSzi9g_OyWO9G9D';
+const SUPABASE_STATE_TABLE = 'app_state';
+const SUPABASE_STATE_ID = 'shared';
 
 // 状態変数 (ここで宣言しておけば ReferenceError になりません)
 let showModal = false;
@@ -158,11 +159,11 @@ let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
 let dragOffsetTime = 0;
 let taskDragOffsetY = 0;
 let isTaskDragging = false;
-let sharedFileHandle = null;
-let sharedStorageStatus = "ローカル保存のみ";
-let sharedSaveTimer = null;
-let isSharedWriteInProgress = false;
-let sharedSaveQueued = false;
+let supabaseSyncStatus = "Supabase未接続";
+let supabaseSaveTimer = null;
+let isSupabaseWriteInProgress = false;
+let supabaseSaveQueued = false;
+let supabaseClientCache = null;
 
 // ボタン管理配列
 const buttons = [];
@@ -218,7 +219,7 @@ function checkLogin() {
 function resetAllData() {
   if(confirm("全てのデータを削除してリセットしますか？")) {
     clearLocalData();
-    resetSharedDataIfConnected().finally(() => location.reload());
+    resetSupabaseDataIfConfigured().finally(() => location.reload());
   }
 }
 
@@ -311,7 +312,7 @@ function drawControlBar() {
   textSize(11);
   textAlign(RIGHT, CENTER);
   fill(COL_TEXT_SUB);
-  text(sharedStorageStatus, width - 12, CONTROL_H - 10);
+  text(supabaseSyncStatus, width - 12, CONTROL_H - 10);
   textStyle(NORMAL);
 }
 
@@ -328,7 +329,6 @@ function setupButtons() {
   addButton("ICS出力", -310, 15, 80, 30, exportICS, true, '#10B981');
   addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
   addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
-  addButton("共有同期", -660, 15, 120, 30, syncSharedDataNow, true, '#0EA5E9');
 }
 function addButton(l, x, y, w, h, act, ar=false, col='#E5E7EB') {
   buttons.push(new Button(l, x, y, w, h, act, ar, col));
@@ -770,12 +770,12 @@ function loadData() {
 
   let oneWeekAgo = new Date(); oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   doneTasks = doneTasks.filter(t => { if (!t.completedDate) return true; return new Date(t.completedDate) >= oneWeekAgo; });
-  initSharedStorage();
+  initSupabaseSync();
 }
 function saveData() {
   dataUpdatedAt = Date.now();
   saveLocalDataOnly();
-  queueSharedSave();
+  queueSupabaseSave();
 }
 function moveDate(days) { viewStartDate.setDate(viewStartDate.getDate() + days); }
 function getDayOffset(date) { let diff = date - viewStartDate; return Math.floor(diff / (1000 * 60 * 60 * 24)); }
@@ -841,208 +841,120 @@ function hasAnyData(snapshot) {
   return ec + bc + dc + fc > 0;
 }
 
-function isFileAccessSupported() {
-  return 'showSaveFilePicker' in window && 'indexedDB' in window;
+function isSupabaseConfigured() {
+  const hasUrl = SUPABASE_URL && !SUPABASE_URL.includes('YOUR_PROJECT_REF');
+  const hasKey = SUPABASE_PUBLISHABLE_KEY && !SUPABASE_PUBLISHABLE_KEY.includes('YOUR_SUPABASE_PUBLISHABLE_KEY');
+  return hasUrl && hasKey && typeof supabase !== 'undefined';
 }
 
-async function openSharedHandleDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(SHARED_HANDLE_DB, 1);
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(SHARED_HANDLE_STORE)) {
-        req.result.createObjectStore(SHARED_HANDLE_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function saveHandleToDb(handle) {
-  const db = await openSharedHandleDb();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(SHARED_HANDLE_STORE, 'readwrite');
-    tx.objectStore(SHARED_HANDLE_STORE).put(handle, SHARED_HANDLE_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-}
-
-async function readHandleFromDb() {
-  const db = await openSharedHandleDb();
-  const handle = await new Promise((resolve, reject) => {
-    const tx = db.transaction(SHARED_HANDLE_STORE, 'readonly');
-    const req = tx.objectStore(SHARED_HANDLE_STORE).get(SHARED_HANDLE_KEY);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
-  db.close();
-  return handle;
-}
-
-async function ensureHandlePermission(handle, askUser=false) {
-  if (!handle) return false;
-  const opts = { mode: 'readwrite' };
-  if (await handle.queryPermission(opts) === 'granted') return true;
-  if (!askUser) return false;
-  return (await handle.requestPermission(opts)) === 'granted';
-}
-
-async function readSnapshotFromHandle(handle) {
-  try {
-    const file = await handle.getFile();
-    const text = await file.text();
-    if (!text || !text.trim()) return null;
-    return JSON.parse(text);
-  } catch (_) {
-    return null;
+function getSupabaseClient() {
+  if (!isSupabaseConfigured()) return null;
+  if (!supabaseClientCache) {
+    supabaseClientCache = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
   }
+  return supabaseClientCache;
 }
 
-async function writeSnapshotToHandle(handle, snapshot) {
-  const writable = await handle.createWritable();
-  await writable.write(JSON.stringify(snapshot, null, 2));
-  await writable.close();
+async function fetchSupabaseSnapshot() {
+  const client = getSupabaseClient();
+  if (!client) return { ok: false, reason: 'not_configured' };
+  const { data, error } = await client
+    .from(SUPABASE_STATE_TABLE)
+    .select('payload, updated_at')
+    .eq('id', SUPABASE_STATE_ID)
+    .maybeSingle();
+  if (error) return { ok: false, reason: 'error', error };
+  if (!data?.payload) return { ok: false, reason: 'not_found' };
+  return { ok: true, snapshot: data.payload };
 }
 
-async function initSharedStorage() {
-  if (!isFileAccessSupported()) {
-    sharedStorageStatus = "共有未対応ブラウザ";
+async function updateSupabaseSnapshot(snapshot) {
+  const client = getSupabaseClient();
+  if (!client) return { ok: false, reason: 'not_configured' };
+  const { error } = await client
+    .from(SUPABASE_STATE_TABLE)
+    .update({
+      payload: snapshot,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', SUPABASE_STATE_ID);
+  if (error) return { ok: false, reason: 'error', error };
+  return { ok: true };
+}
+
+async function initSupabaseSync() {
+  if (!isSupabaseConfigured()) {
+    supabaseSyncStatus = "Supabase未設定";
     return;
   }
+  supabaseSyncStatus = "Supabase接続中";
   try {
-    const handle = await readHandleFromDb();
-    if (!handle) {
-      sharedStorageStatus = "共有ファイル未設定";
-      return;
-    }
-    const granted = await ensureHandlePermission(handle, false);
-    if (!granted) {
-      sharedStorageStatus = "共有ファイル再接続が必要";
-      return;
-    }
-    sharedFileHandle = handle;
-    sharedStorageStatus = "共有ファイル接続済み";
-
-    const sharedSnapshot = await readSnapshotFromHandle(handle);
-    if (!sharedSnapshot) {
-      await writeSnapshotToHandle(handle, createSnapshot());
-      sharedStorageStatus = "共有ファイル初期化済み";
+    const remote = await fetchSupabaseSnapshot();
+    if (!remote.ok) {
+      if (remote.reason === 'not_found') {
+        supabaseSyncStatus = "Supabase行未作成";
+      } else {
+        supabaseSyncStatus = "Supabase読込失敗";
+      }
       return;
     }
 
     const localSnapshot = createSnapshot();
-    const sharedAt = sharedSnapshot.updatedAt || 0;
+    const remoteAt = remote.snapshot.updatedAt || 0;
     const localAt = localSnapshot.updatedAt || 0;
-    if (sharedAt > localAt && hasAnyData(sharedSnapshot)) {
-      applySnapshot(sharedSnapshot);
+    if (remoteAt > localAt && hasAnyData(remote.snapshot)) {
+      applySnapshot(remote.snapshot);
       saveLocalDataOnly();
-      sharedStorageStatus = "共有ファイルから復元";
-    } else if (localAt > sharedAt && hasAnyData(localSnapshot)) {
-      await writeSnapshotToHandle(handle, localSnapshot);
-      sharedStorageStatus = "共有ファイルへ同期済み";
+      supabaseSyncStatus = "Supabaseから復元";
+    } else if (localAt > remoteAt && hasAnyData(localSnapshot)) {
+      const result = await updateSupabaseSnapshot(localSnapshot);
+      supabaseSyncStatus = result.ok ? "Supabaseへ同期済み" : "Supabase初期同期失敗";
     } else {
-      sharedStorageStatus = "共有ファイル同期済み";
+      supabaseSyncStatus = "Supabase同期済み";
     }
   } catch (_) {
-    sharedStorageStatus = "共有同期エラー";
+    supabaseSyncStatus = "Supabase同期エラー";
   }
 }
 
-async function syncSharedDataNow() {
-  if (!isFileAccessSupported()) {
-    alert('このブラウザは共有保存機能に未対応です。Chrome/Edge系でご利用ください。');
-    return;
-  }
-
-  try {
-    if (!sharedFileHandle) {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: SHARED_FILENAME,
-        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
-      });
-      const granted = await ensureHandlePermission(handle, true);
-      if (!granted) {
-        sharedStorageStatus = "共有権限が未許可";
-        return;
-      }
-      sharedFileHandle = handle;
-      await saveHandleToDb(handle);
-      sharedStorageStatus = "共有ファイル接続済み";
-    } else {
-      const granted = await ensureHandlePermission(sharedFileHandle, true);
-      if (!granted) {
-        sharedStorageStatus = "共有権限が未許可";
-        return;
-      }
-    }
-
-    const sharedSnapshot = await readSnapshotFromHandle(sharedFileHandle);
-    const localSnapshot = createSnapshot();
-    const sharedAt = sharedSnapshot?.updatedAt || 0;
-    const localAt = localSnapshot.updatedAt || 0;
-
-    if (sharedSnapshot && sharedAt > localAt) {
-      if (confirm("共有ファイルの方が新しいデータです。読み込みますか？")) {
-        applySnapshot(sharedSnapshot);
-        saveLocalDataOnly();
-        sharedStorageStatus = "共有ファイルを読み込み";
-      }
-      return;
-    }
-
-    await writeSnapshotToHandle(sharedFileHandle, localSnapshot);
-    sharedStorageStatus = "共有ファイルへ同期済み";
-  } catch (_) {
-    sharedStorageStatus = "共有同期エラー";
-    alert('共有同期に失敗しました。もう一度お試しください。');
-  }
-}
-
-function queueSharedSave() {
-  if (!sharedFileHandle) return;
-  if (sharedSaveTimer) clearTimeout(sharedSaveTimer);
-  sharedSaveTimer = setTimeout(() => {
-    persistSharedSave();
+function queueSupabaseSave() {
+  if (!isSupabaseConfigured()) return;
+  if (supabaseSaveTimer) clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = setTimeout(() => {
+    persistSupabaseSave();
   }, 400);
 }
 
-async function persistSharedSave() {
-  if (!sharedFileHandle) return;
-  if (isSharedWriteInProgress) {
-    sharedSaveQueued = true;
+async function persistSupabaseSave() {
+  if (!isSupabaseConfigured()) return;
+  if (isSupabaseWriteInProgress) {
+    supabaseSaveQueued = true;
     return;
   }
-  isSharedWriteInProgress = true;
+  isSupabaseWriteInProgress = true;
   try {
-    await writeSnapshotToHandle(sharedFileHandle, createSnapshot());
-    sharedStorageStatus = "共有ファイル自動保存済み";
-  } catch (_) {
-    sharedStorageStatus = "共有自動保存失敗";
+    const result = await updateSupabaseSnapshot(createSnapshot());
+    supabaseSyncStatus = result.ok ? "Supabase自動保存済み" : "Supabase保存失敗";
   } finally {
-    isSharedWriteInProgress = false;
-    if (sharedSaveQueued) {
-      sharedSaveQueued = false;
-      persistSharedSave();
+    isSupabaseWriteInProgress = false;
+    if (supabaseSaveQueued) {
+      supabaseSaveQueued = false;
+      persistSupabaseSave();
     }
   }
 }
 
-async function resetSharedDataIfConnected() {
-  if (!sharedFileHandle) return;
-  try {
-    const granted = await ensureHandlePermission(sharedFileHandle, true);
-    if (!granted) return;
-    await writeSnapshotToHandle(sharedFileHandle, {
-      version: 2,
-      updatedAt: Date.now(),
-      events: [],
-      backlogTasks: [],
-      doingTasks: [],
-      doneTasks: []
-    });
-  } catch (_) {}
+async function resetSupabaseDataIfConfigured() {
+  if (!isSupabaseConfigured()) return;
+  const emptySnapshot = {
+    version: 2,
+    updatedAt: Date.now(),
+    events: [],
+    backlogTasks: [],
+    doingTasks: [],
+    doneTasks: []
+  };
+  await updateSupabaseSnapshot(emptySnapshot);
 }
 
 function exportICS() {
