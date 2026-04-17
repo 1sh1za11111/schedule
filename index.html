@@ -139,6 +139,7 @@ let isEditingDeadline = false;
 
 // データ配列
 let events = [];
+let monthPlans = [];
 let backlogTasks = [];
 let doingTasks = [];
 let doneTasks = [];
@@ -154,6 +155,7 @@ let dataUpdatedAt = Date.now();
 
 // 操作系変数
 let selectedItem = null;
+let selectedItemKind = 'event'; // 'event' | 'task' | 'month'
 let creatingEvent = null;
 let draggingItem = null;
 let dragAction = 0; // 0:None, 1:Create, 2:Move, 3:ResizeTop, 4:ResizeBottom
@@ -199,6 +201,15 @@ class Task {
     this.colorIdx = colorIdx;
     this.completedDate = "";
     this.status = 0; // 0:Doing, 1:Backlog, 2:Done
+  }
+}
+
+class MonthPlan {
+  constructor(dateStr, title, colorIdx) {
+    this.dateStr = dateStr;
+    this.title = title;
+    this.colorIdx = colorIdx;
+    this.memo = "";
   }
 }
 
@@ -391,7 +402,7 @@ function drawMonthView() {
     const inCurrentMonth = dayDate.getMonth() === monthStart.getMonth();
     const isToday = isSameDate(dayDate, today);
     const dateStr = formatDateISO(dayDate);
-    const dayEvents = getEventsByDate(dateStr);
+    const dayEvents = getMonthPlansByDate(dateStr);
 
     fill(inCurrentMonth ? COL_WHITE : '#F9FAFB');
     rect(x, y, cellW, cellH);
@@ -422,18 +433,11 @@ function drawMonthView() {
       const chipX = x + 5;
       fill(EVENT_COLORS[e.colorIdx]);
       rect(chipX, chipY, chipW, 16, 4);
-      if (e.type === 1) {
-        noFill();
-        stroke(255, 180);
-        rect(chipX, chipY, chipW, 16, 4);
-        noStroke();
-      }
       fill(255);
       textAlign(LEFT, CENTER);
       textSize(10);
       textStyle(NORMAL);
-      const prefix = e.type === 1 ? '実 ' : '予 ';
-      text(`${prefix}${formatTime(e.start)} ${e.title}`, chipX + 4, chipY + 8);
+      text(`${e.title}`, chipX + 4, chipY + 8);
       chipY += 18;
     }
     if (dayEvents.length > maxRows) {
@@ -774,6 +778,7 @@ function mouseWheel(event) {
 // --- Utils ---
 function openModal(item, type) {
   selectedItem = item;
+  selectedItemKind = type;
   let modal = document.getElementById('modal-overlay');
   let headerBar = document.getElementById('modal-header-bar');
   let colorPicker = document.getElementById('color-picker');
@@ -781,7 +786,8 @@ function openModal(item, type) {
   document.getElementById('input-title').value = item.title;
   document.getElementById('input-memo').value = item.memo;
   colorPicker.innerHTML = '';
-  let colors = (type === 'event') ? EVENT_COLORS : TASK_COLORS;
+  let colors = EVENT_COLORS;
+  if (type === 'task') colors = TASK_COLORS;
   colors.forEach((c, idx) => {
     let div = document.createElement('div');
     div.className = 'color-circle' + (idx === item.colorIdx ? ' selected' : '');
@@ -803,27 +809,39 @@ function openModal(item, type) {
     document.getElementById('group-deadline').style.display = 'none';
     document.getElementById('input-start').value = formatTimeInput(item.start);
     document.getElementById('input-end').value = formatTimeInput(item.start + item.duration);
-  } else {
+  } else if (type === 'task') {
     document.getElementById('label-title').innerText = "タスク名";
     document.getElementById('group-time').style.display = 'none';
     document.getElementById('group-deadline').style.display = 'block';
     document.getElementById('input-deadline').value = item.deadline;
+  } else {
+    document.getElementById('label-title').innerText = "月間予定";
+    document.getElementById('group-time').style.display = 'none';
+    document.getElementById('group-deadline').style.display = 'none';
   }
 }
 function saveItem() {
   if (!selectedItem) return;
   selectedItem.title = document.getElementById('input-title').value;
   selectedItem.memo = document.getElementById('input-memo').value;
-  if (currentMode === 0) {
+  if (selectedItemKind === 'event') {
     let s = parseTimeInput(document.getElementById('input-start').value);
     let e = parseTimeInput(document.getElementById('input-end').value);
     if (s >= 0 && e > s) { selectedItem.start = s; selectedItem.duration = e - s; }
-  } else { selectedItem.deadline = document.getElementById('input-deadline').value; }
+  } else if (selectedItemKind === 'task') {
+    selectedItem.deadline = document.getElementById('input-deadline').value;
+  }
   saveData(); closeModal();
 }
 function deleteItem() {
   if (!selectedItem) return;
-  if (currentMode === 0) { events = events.filter(e => e !== selectedItem); } else { removeFromAllLists(selectedItem); }
+  if (selectedItemKind === 'event') {
+    events = events.filter(e => e !== selectedItem);
+  } else if (selectedItemKind === 'month') {
+    monthPlans = monthPlans.filter(e => e !== selectedItem);
+  } else {
+    removeFromAllLists(selectedItem);
+  }
   selectedItem = null; saveData(); closeModal();
 }
 function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
@@ -910,12 +928,11 @@ function addEventWithAutoActual(eventItem) {
   }
 }
 
-function getEventsByDate(dateStr) {
-  return events
+function getMonthPlansByDate(dateStr) {
+  return monthPlans
     .filter(e => e.dateStr === dateStr)
     .sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      return a.type - b.type;
+      return a.title.localeCompare(b.title, 'ja');
     });
 }
 
@@ -940,7 +957,7 @@ function getMonthEventHit(mouseXPos, mouseYPos) {
   const dayDate = new Date(meta.gridStart);
   dayDate.setDate(meta.gridStart.getDate() + idx);
   const dateStr = formatDateISO(dayDate);
-  const dayEvents = getEventsByDate(dateStr);
+  const dayEvents = getMonthPlansByDate(dateStr);
 
   const innerY = localY - (meta.weekHeaderH + row * meta.cellH);
   if (innerY < 30) return { dateStr, event: null, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
@@ -958,7 +975,7 @@ function handleMonthViewClick() {
   if (!hit) return;
   if (hit.event) {
     selectedItem = hit.event;
-    openModal(hit.event, 'event');
+    openModal(hit.event, 'month');
     return;
   }
   // 月外セルはナビゲーション扱いにする
@@ -967,11 +984,11 @@ function handleMonthViewClick() {
     viewStartDate.setDate(1);
     return;
   }
-  let newEvent = new Event(hit.dateStr, 9, 1.0, '新規予定', 0, 0);
-  addEventWithAutoActual(newEvent);
-  selectedItem = newEvent;
+  let newPlan = new MonthPlan(hit.dateStr, '月間予定', 0);
+  monthPlans.push(newPlan);
+  selectedItem = newPlan;
   saveData();
-  openModal(newEvent, 'event');
+  openModal(newPlan, 'month');
 }
 
 function createSnapshot() {
@@ -979,6 +996,7 @@ function createSnapshot() {
     version: 2,
     updatedAt: dataUpdatedAt,
     events,
+    monthPlans,
     backlogTasks,
     doingTasks,
     doneTasks
@@ -991,6 +1009,11 @@ function applySnapshot(snapshot) {
     let nev = new Event(e.dateStr, e.start||0, e.duration||1, e.title||"", e.colorIdx||0, e.type !== undefined ? e.type : 0);
     nev.memo = e.memo || "";
     return nev;
+  });
+  monthPlans = (snapshot.monthPlans || []).map(p => {
+    let mp = new MonthPlan(p.dateStr, p.title || "", p.colorIdx || 0);
+    mp.memo = p.memo || "";
+    return mp;
   });
   backlogTasks = (snapshot.backlogTasks || []).map(t => Object.assign(new Task(), t));
   doingTasks = (snapshot.doingTasks || []).map(t => Object.assign(new Task(), t));
@@ -1019,10 +1042,11 @@ function clearLocalData() {
 function hasAnyData(snapshot) {
   if (!snapshot) return false;
   const ec = (snapshot.events || []).length;
+  const mc = (snapshot.monthPlans || []).length;
   const bc = (snapshot.backlogTasks || []).length;
   const dc = (snapshot.doingTasks || []).length;
   const fc = (snapshot.doneTasks || []).length;
-  return ec + bc + dc + fc > 0;
+  return ec + mc + bc + dc + fc > 0;
 }
 
 function isSupabaseConfigured() {
@@ -1134,6 +1158,7 @@ async function resetSupabaseDataIfConfigured() {
     version: 2,
     updatedAt: Date.now(),
     events: [],
+    monthPlans: [],
     backlogTasks: [],
     doingTasks: [],
     doneTasks: []
