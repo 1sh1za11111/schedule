@@ -381,12 +381,14 @@ function drawButtons() {
 }
 
 function drawMonthView() {
-  const weekHeaderH = 34;
-  const cellW = width / 7;
-  const cellH = (height - CONTROL_H - weekHeaderH) / 6;
-  const monthStart = new Date(viewStartDate.getFullYear(), viewStartDate.getMonth(), 1);
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+  const meta = getMonthGridMeta();
+  const weekHeaderH = meta.weekHeaderH;
+  const cellW = meta.cellW;
+  const cellH = meta.cellH;
+  const monthStart = meta.monthStart;
+  const gridStart = meta.gridStart;
+  const barLayout = getMonthBarLayout();
+  const weekSegments = getMonthWeekSegments(meta, barLayout.maxLanes);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -410,9 +412,6 @@ function drawMonthView() {
     dayDate.setDate(gridStart.getDate() + idx);
     const inCurrentMonth = dayDate.getMonth() === monthStart.getMonth();
     const isToday = isSameDate(dayDate, today);
-    const dateStr = formatDateISO(dayDate);
-    const dayEvents = getMonthPlansByDate(dateStr);
-
     fill(inCurrentMonth ? COL_WHITE : '#F9FAFB');
     rect(x, y, cellW, cellH);
     stroke(COL_LINE);
@@ -433,27 +432,21 @@ function drawMonthView() {
     textSize(12);
     textStyle(BOLD);
     text(`${dayDate.getDate()}`, x + 20, y + 16);
+  }
 
-    let chipY = y + 30;
-    const maxRows = Math.max(0, Math.floor((cellH - 34) / 18));
-    for (let i = 0; i < dayEvents.length && i < maxRows; i++) {
-      const e = dayEvents[i];
-      const chipW = cellW - 10;
-      const chipX = x + 5;
-      fill(EVENT_COLORS[e.colorIdx]);
-      rect(chipX, chipY, chipW, 16, 4);
-      fill(255);
-      textAlign(LEFT, CENTER);
-      textSize(10);
-      textStyle(NORMAL);
-      text(`${e.title}`, chipX + 4, chipY + 8);
-      chipY += 18;
-    }
-    if (dayEvents.length > maxRows) {
-      fill(COL_TEXT_SUB);
-      textAlign(LEFT, CENTER);
-      textSize(10);
-      text(`+${dayEvents.length - maxRows}件`, x + 8, y + cellH - 10);
+  for (let i = 0; i < weekSegments.length; i++) {
+    const seg = weekSegments[i];
+    fill(EVENT_COLORS[seg.plan.colorIdx]);
+    const r1 = seg.continuesFromPrevWeek ? 1 : 4;
+    const r2 = seg.continuesToNextWeek ? 1 : 4;
+    rect(seg.x, seg.y, seg.w, barLayout.barH, r1, r2, r2, r1);
+
+    fill(255);
+    textAlign(LEFT, CENTER);
+    textSize(10);
+    textStyle(NORMAL);
+    if (seg.w > 24) {
+      text(seg.plan.title, seg.x + 4, seg.y + barLayout.barH / 2 + 0.5);
     }
   }
 }
@@ -970,8 +963,83 @@ function getMonthGridMeta() {
   return { weekHeaderH, cellW, cellH, monthStart, gridStart };
 }
 
+function getMonthBarLayout() {
+  const barTopPad = 28;
+  const barH = 14;
+  const laneGap = 3;
+  const laneStep = barH + laneGap;
+  const cellH = (height - CONTROL_H - 34) / 6;
+  const maxLanes = Math.max(1, Math.floor((cellH - barTopPad - 6) / laneStep));
+  return { barTopPad, barH, laneGap, laneStep, maxLanes };
+}
+
+function parseISODateString(dateStr) {
+  const p = dateStr.split('-');
+  if (p.length !== 3) return new Date();
+  return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+}
+
+function clampDateStr(dateStr, minStr, maxStr) {
+  if (dateStr < minStr) return minStr;
+  if (dateStr > maxStr) return maxStr;
+  return dateStr;
+}
+
+function getMonthWeekSegments(meta, maxLanes) {
+  const segments = [];
+  for (let row = 0; row < 6; row++) {
+    const weekStartDate = new Date(meta.gridStart);
+    weekStartDate.setDate(meta.gridStart.getDate() + row * 7);
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekStartDate.getDate() + 6);
+    const weekStartStr = formatDateISO(weekStartDate);
+    const weekEndStr = formatDateISO(weekEndDate);
+    const weekPlans = monthPlans
+      .filter(p => (p.startDateStr || '') <= weekEndStr && (p.endDateStr || p.startDateStr || '') >= weekStartStr)
+      .sort((a, b) => {
+        if (a.startDateStr !== b.startDateStr) return a.startDateStr.localeCompare(b.startDateStr);
+        if (a.endDateStr !== b.endDateStr) return a.endDateStr.localeCompare(b.endDateStr);
+        return a.title.localeCompare(b.title, 'ja');
+      });
+    const laneLastEndCol = [];
+    for (let i = 0; i < weekPlans.length; i++) {
+      const plan = weekPlans[i];
+      const planStartStr = plan.startDateStr;
+      const planEndStr = plan.endDateStr || plan.startDateStr;
+      const segStartStr = clampDateStr(planStartStr, weekStartStr, weekEndStr);
+      const segEndStr = clampDateStr(planEndStr, weekStartStr, weekEndStr);
+      const segStartDate = parseISODateString(segStartStr);
+      const segEndDate = parseISODateString(segEndStr);
+      const startCol = Math.max(0, Math.min(6, Math.floor((segStartDate - weekStartDate) / (1000 * 60 * 60 * 24))));
+      const endCol = Math.max(0, Math.min(6, Math.floor((segEndDate - weekStartDate) / (1000 * 60 * 60 * 24))));
+      let lane = 0;
+      while (lane < laneLastEndCol.length && startCol <= laneLastEndCol[lane]) lane++;
+      laneLastEndCol[lane] = endCol;
+      if (lane >= maxLanes) continue;
+      const x = startCol * meta.cellW + 3;
+      const y = meta.weekHeaderH + row * meta.cellH + 28 + lane * 17;
+      const w = (endCol - startCol + 1) * meta.cellW - 6;
+      segments.push({
+        row,
+        lane,
+        startCol,
+        endCol,
+        x,
+        y,
+        w,
+        plan,
+        continuesFromPrevWeek: planStartStr < weekStartStr,
+        continuesToNextWeek: planEndStr > weekEndStr
+      });
+    }
+  }
+  return segments;
+}
+
 function getMonthEventHit(mouseXPos, mouseYPos) {
   const meta = getMonthGridMeta();
+  const barLayout = getMonthBarLayout();
+  const weekSegments = getMonthWeekSegments(meta, barLayout.maxLanes);
   const localY = mouseYPos - CONTROL_H;
   if (localY < meta.weekHeaderH) return null;
   const col = Math.floor(mouseXPos / meta.cellW);
@@ -981,15 +1049,12 @@ function getMonthEventHit(mouseXPos, mouseYPos) {
   const dayDate = new Date(meta.gridStart);
   dayDate.setDate(meta.gridStart.getDate() + idx);
   const dateStr = formatDateISO(dayDate);
-  const dayEvents = getMonthPlansByDate(dateStr);
-
-  const innerY = localY - (meta.weekHeaderH + row * meta.cellH);
-  if (innerY < 30) return { dateStr, event: null, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
-
-  const chipIdx = Math.floor((innerY - 30) / 18);
-  const maxRows = Math.max(0, Math.floor((meta.cellH - 34) / 18));
-  if (chipIdx >= 0 && chipIdx < Math.min(dayEvents.length, maxRows)) {
-    return { dateStr, event: dayEvents[chipIdx], inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
+  for (let i = 0; i < weekSegments.length; i++) {
+    const seg = weekSegments[i];
+    if (seg.row !== row) continue;
+    if (mouseXPos >= seg.x && mouseXPos <= seg.x + seg.w && localY >= seg.y && localY <= seg.y + barLayout.barH) {
+      return { dateStr, event: seg.plan, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
+    }
   }
   return { dateStr, event: null, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
 }
