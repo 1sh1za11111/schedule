@@ -74,6 +74,14 @@
         <label>締切日 (↑↓キーで変更可)</label>
         <input type="date" id="input-deadline">
       </div>
+      <div class="form-group" id="group-month-range" style="display:none;">
+        <label>期間 (開始日〜終了日)</label>
+        <div class="time-inputs">
+          <input type="date" id="input-month-start">
+          <span>〜</span>
+          <input type="date" id="input-month-end">
+        </div>
+      </div>
       <div class="form-group">
         <label>カラー</label>
         <div class="color-picker" id="color-picker"></div>
@@ -205,8 +213,9 @@ class Task {
 }
 
 class MonthPlan {
-  constructor(dateStr, title, colorIdx) {
-    this.dateStr = dateStr;
+  constructor(startDateStr, endDateStr, title, colorIdx) {
+    this.startDateStr = startDateStr;
+    this.endDateStr = endDateStr || startDateStr;
     this.title = title;
     this.colorIdx = colorIdx;
     this.memo = "";
@@ -592,7 +601,7 @@ function drawTaskCard(t, x, y, w, h) {
 
 function setupKeyEvents() {
   document.getElementById('password-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') checkLogin(); });
-  const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline'];
+  const inputs = ['input-title', 'input-start', 'input-end', 'input-deadline', 'input-month-start', 'input-month-end'];
   inputs.forEach(id => { document.getElementById(id).addEventListener('keydown', function(e) { if (e.key === 'Enter') saveItem(); }); });
   document.getElementById('input-deadline').addEventListener('keydown', function(e) { if (e.key === 'ArrowUp') { changeDate(1); e.preventDefault(); } else if (e.key === 'ArrowDown') { changeDate(-1); e.preventDefault(); } });
 }
@@ -807,17 +816,22 @@ function openModal(item, type) {
     label.innerText = (item.type===1) ? "実績タイトル" : "予定タイトル";
     document.getElementById('group-time').style.display = 'block';
     document.getElementById('group-deadline').style.display = 'none';
+    document.getElementById('group-month-range').style.display = 'none';
     document.getElementById('input-start').value = formatTimeInput(item.start);
     document.getElementById('input-end').value = formatTimeInput(item.start + item.duration);
   } else if (type === 'task') {
     document.getElementById('label-title').innerText = "タスク名";
     document.getElementById('group-time').style.display = 'none';
     document.getElementById('group-deadline').style.display = 'block';
+    document.getElementById('group-month-range').style.display = 'none';
     document.getElementById('input-deadline').value = item.deadline;
   } else {
     document.getElementById('label-title').innerText = "月間予定";
     document.getElementById('group-time').style.display = 'none';
     document.getElementById('group-deadline').style.display = 'none';
+    document.getElementById('group-month-range').style.display = 'block';
+    document.getElementById('input-month-start').value = item.startDateStr;
+    document.getElementById('input-month-end').value = item.endDateStr || item.startDateStr;
   }
 }
 function saveItem() {
@@ -830,6 +844,16 @@ function saveItem() {
     if (s >= 0 && e > s) { selectedItem.start = s; selectedItem.duration = e - s; }
   } else if (selectedItemKind === 'task') {
     selectedItem.deadline = document.getElementById('input-deadline').value;
+  } else if (selectedItemKind === 'month') {
+    const s = document.getElementById('input-month-start').value || selectedItem.startDateStr;
+    const e = document.getElementById('input-month-end').value || s;
+    if (s <= e) {
+      selectedItem.startDateStr = s;
+      selectedItem.endDateStr = e;
+    } else {
+      selectedItem.startDateStr = e;
+      selectedItem.endDateStr = s;
+    }
   }
   saveData(); closeModal();
 }
@@ -930,7 +954,7 @@ function addEventWithAutoActual(eventItem) {
 
 function getMonthPlansByDate(dateStr) {
   return monthPlans
-    .filter(e => e.dateStr === dateStr)
+    .filter(e => dateStr >= e.startDateStr && dateStr <= (e.endDateStr || e.startDateStr))
     .sort((a, b) => {
       return a.title.localeCompare(b.title, 'ja');
     });
@@ -984,7 +1008,7 @@ function handleMonthViewClick() {
     viewStartDate.setDate(1);
     return;
   }
-  let newPlan = new MonthPlan(hit.dateStr, '月間予定', 0);
+  let newPlan = new MonthPlan(hit.dateStr, hit.dateStr, '月間予定', 0);
   monthPlans.push(newPlan);
   selectedItem = newPlan;
   saveData();
@@ -1011,7 +1035,9 @@ function applySnapshot(snapshot) {
     return nev;
   });
   monthPlans = (snapshot.monthPlans || []).map(p => {
-    let mp = new MonthPlan(p.dateStr, p.title || "", p.colorIdx || 0);
+    const startStr = p.startDateStr || p.dateStr || formatDateISO(new Date());
+    const endStr = p.endDateStr || startStr;
+    let mp = new MonthPlan(startStr, endStr, p.title || "", p.colorIdx || 0);
     mp.memo = p.memo || "";
     return mp;
   });
