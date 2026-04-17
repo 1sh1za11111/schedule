@@ -149,6 +149,7 @@ let visibleDays = 4;
 let scrollY = -600;
 let taskScrollY = 0;
 let currentMode = 0; // 0:Calendar, 1:Task
+let calendarViewMode = 'time'; // 'time' or 'month'
 let dataUpdatedAt = Date.now();
 
 // 操作系変数
@@ -252,32 +253,37 @@ function draw() {
 
   if (currentMode === 0) {
     // --- カレンダーモード ---
-    let contentH = height - CONTROL_H - DATE_H;
-    
-    push();
-    translate(0, CONTROL_H);
-    drawDateHeader();
-    translate(0, DATE_H);
-    
-    // スクロール
-    push();
-    translate(0, scrollY);
-    
-    drawTimeGrid();
-    drawEvents();
-    
-    // ドラッグ中の新規イベント
-    if (dragAction === 1 && creatingEvent) {
-      let d = new Date(creatingEvent.dateStr);
-      let offset = getDayOffset(d);
-      if (offset >= 0 && offset < visibleDays) {
-        let isSplit = isPastOrToday(d);
-        drawEventRect(creatingEvent, offset, isSplit);
+    if (calendarViewMode === 'month') {
+      push();
+      translate(0, CONTROL_H);
+      drawMonthView();
+      pop();
+    } else {
+      push();
+      translate(0, CONTROL_H);
+      drawDateHeader();
+      translate(0, DATE_H);
+      
+      // スクロール
+      push();
+      translate(0, scrollY);
+      
+      drawTimeGrid();
+      drawEvents();
+      
+      // ドラッグ中の新規イベント
+      if (dragAction === 1 && creatingEvent) {
+        let d = new Date(creatingEvent.dateStr);
+        let offset = getDayOffset(d);
+        if (offset >= 0 && offset < visibleDays) {
+          let isSplit = isPastOrToday(d);
+          drawEventRect(creatingEvent, offset, isSplit);
+        }
       }
+      
+      pop(); 
+      pop();
     }
-    
-    pop(); 
-    pop();
     
     // マスク代わりの再描画
     drawControlBar();
@@ -318,14 +324,15 @@ function drawControlBar() {
 
 function setupButtons() {
   buttons.length = 0; // Reset
-  addButton("<<", 20, 15, 40, 30, () => moveDate(-7));
-  addButton("<", 70, 15, 40, 30, () => moveDate(-1));
+  addButton("<<", 20, 15, 40, 30, () => calendarViewMode === 'month' ? moveMonth(-12) : moveDate(-7));
+  addButton("<", 70, 15, 40, 30, () => calendarViewMode === 'month' ? moveMonth(-1) : moveDate(-1));
   addButton("今日", 120, 15, 60, 30, () => { viewStartDate = new Date(); viewStartDate.setHours(0,0,0,0); });
-  addButton(">", 190, 15, 40, 30, () => moveDate(1));
-  addButton(">>", 240, 15, 40, 30, () => moveDate(7));
-  addButton("Day", -220, 15, 50, 30, () => visibleDays = 1, true);
-  addButton("4 Days", -160, 15, 60, 30, () => visibleDays = 4, true);
-  addButton("Week", -90, 15, 50, 30, () => visibleDays = 7, true);
+  addButton(">", 190, 15, 40, 30, () => calendarViewMode === 'month' ? moveMonth(1) : moveDate(1));
+  addButton(">>", 240, 15, 40, 30, () => calendarViewMode === 'month' ? moveMonth(12) : moveDate(7));
+  addButton("Day", -280, 15, 50, 30, () => { calendarViewMode = 'time'; visibleDays = 1; }, true);
+  addButton("4 Days", -220, 15, 60, 30, () => { calendarViewMode = 'time'; visibleDays = 4; }, true);
+  addButton("Week", -150, 15, 50, 30, () => { calendarViewMode = 'time'; visibleDays = 7; }, true);
+  addButton("Month", -90, 15, 60, 30, () => { calendarViewMode = 'month'; }, true);
   addButton("ICS出力", -310, 15, 80, 30, exportICS, true, '#10B981');
   addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
   addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
@@ -337,13 +344,105 @@ function drawButtons() {
   textSize(12);
   buttons.forEach(b => {
     let bx = b.alignRight ? width + b.x : b.x;
-    if (currentMode === 1) { if (['Day', '4 Days', 'Week', '<<', '<', '>', '>>', '今日'].includes(b.label)) return; }
-    fill(b.color); noStroke(); rect(bx, b.y, b.w, b.h, 5);
+    if (currentMode === 1) { if (['Day', '4 Days', 'Week', 'Month', '<<', '<', '>', '>>', '今日'].includes(b.label)) return; }
+    let active = false;
+    if (b.label === 'Day' && currentMode === 0 && calendarViewMode === 'time' && visibleDays === 1) active = true;
+    if (b.label === '4 Days' && currentMode === 0 && calendarViewMode === 'time' && visibleDays === 4) active = true;
+    if (b.label === 'Week' && currentMode === 0 && calendarViewMode === 'time' && visibleDays === 7) active = true;
+    if (b.label === 'Month' && currentMode === 0 && calendarViewMode === 'month') active = true;
+    const buttonColor = active ? COL_ACCENT : b.color;
+    fill(buttonColor); noStroke(); rect(bx, b.y, b.w, b.h, 5);
     fill(b.color === '#E5E7EB' ? COL_TEXT_SUB : 'white');
+    if (active) fill('white');
     let txt = b.label;
     if (b.label === "モード切替") txt = currentMode === 0 ? "タスク一覧へ" : "カレンダーへ";
     textAlign(CENTER, CENTER); text(txt, bx + b.w/2, b.y + b.h/2);
   });
+}
+
+function drawMonthView() {
+  const weekHeaderH = 34;
+  const cellW = width / 7;
+  const cellH = (height - CONTROL_H - weekHeaderH) / 6;
+  const monthStart = new Date(viewStartDate.getFullYear(), viewStartDate.getMonth(), 1);
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  noStroke();
+  fill(COL_WHITE);
+  rect(0, 0, width, weekHeaderH);
+  for (let i = 0; i < 7; i++) {
+    fill(COL_TEXT_SUB);
+    textAlign(CENTER, CENTER);
+    textSize(13);
+    textStyle(BOLD);
+    text(getDayName(i), i * cellW + cellW / 2, weekHeaderH / 2);
+  }
+
+  for (let idx = 0; idx < 42; idx++) {
+    const col = idx % 7;
+    const row = Math.floor(idx / 7);
+    const x = col * cellW;
+    const y = weekHeaderH + row * cellH;
+    const dayDate = new Date(gridStart);
+    dayDate.setDate(gridStart.getDate() + idx);
+    const inCurrentMonth = dayDate.getMonth() === monthStart.getMonth();
+    const isToday = isSameDate(dayDate, today);
+    const dateStr = formatDateISO(dayDate);
+    const dayEvents = getEventsByDate(dateStr);
+
+    fill(inCurrentMonth ? COL_WHITE : '#F9FAFB');
+    rect(x, y, cellW, cellH);
+    stroke(COL_LINE);
+    line(x, y, x + cellW, y);
+    line(x, y, x, y + cellH);
+    if (col === 6) line(x + cellW, y, x + cellW, y + cellH);
+    if (row === 5) line(x, y + cellH, x + cellW, y + cellH);
+    noStroke();
+
+    if (isToday) {
+      fill(COL_ACCENT);
+      ellipse(x + 20, y + 16, 24, 24);
+      fill(255);
+    } else {
+      fill(inCurrentMonth ? COL_TEXT_MAIN : '#9CA3AF');
+    }
+    textAlign(CENTER, CENTER);
+    textSize(12);
+    textStyle(BOLD);
+    text(`${dayDate.getDate()}`, x + 20, y + 16);
+
+    let chipY = y + 30;
+    const maxRows = Math.max(0, Math.floor((cellH - 34) / 18));
+    for (let i = 0; i < dayEvents.length && i < maxRows; i++) {
+      const e = dayEvents[i];
+      const chipW = cellW - 10;
+      const chipX = x + 5;
+      fill(EVENT_COLORS[e.colorIdx]);
+      rect(chipX, chipY, chipW, 16, 4);
+      if (e.type === 1) {
+        noFill();
+        stroke(255, 180);
+        rect(chipX, chipY, chipW, 16, 4);
+        noStroke();
+      }
+      fill(255);
+      textAlign(LEFT, CENTER);
+      textSize(10);
+      textStyle(NORMAL);
+      const prefix = e.type === 1 ? '実 ' : '予 ';
+      text(`${prefix}${formatTime(e.start)} ${e.title}`, chipX + 4, chipY + 8);
+      chipY += 18;
+    }
+    if (dayEvents.length > maxRows) {
+      fill(COL_TEXT_SUB);
+      textAlign(LEFT, CENTER);
+      textSize(10);
+      text(`+${dayEvents.length - maxRows}件`, x + 8, y + cellH - 10);
+    }
+  }
 }
 
 function drawDateHeader() {
@@ -499,6 +598,10 @@ function doubleClicked() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (mouseY < CONTROL_H) return;
   if (currentMode === 0) {
+    if (calendarViewMode === 'month') {
+      handleMonthViewClick();
+      return false;
+    }
     let colW = (width - SIDEBAR_W) / visibleDays;
     let today = new Date(); today.setHours(0,0,0,0);
     for (let i = events.length - 1; i >= 0; i--) {
@@ -531,13 +634,17 @@ function mousePressed() {
   let btnClicked = false;
   buttons.forEach(b => {
     let bx = b.alignRight ? width + b.x : b.x;
-    if (currentMode === 1) { if (['Day','4 Days','Week','<<','<','>','>>','今日'].includes(b.label)) return; }
+    if (currentMode === 1) { if (['Day','4 Days','Week','Month','<<','<','>','>>','今日'].includes(b.label)) return; }
     if (mouseX >= bx && mouseX <= bx + b.w && mouseY >= b.y && mouseY <= b.y + b.h) { b.action(); btnClicked = true; }
   });
   if (btnClicked) return;
   if (mouseY < CONTROL_H) return;
 
   if (currentMode === 0) {
+    if (calendarViewMode === 'month') {
+      handleMonthViewClick();
+      return;
+    }
     if (mouseX < SIDEBAR_W) return;
     let globalY = mouseY - CONTROL_H - DATE_H - scrollY;
     let timeVal = snapTo15Min(globalY / HOUR_H);
@@ -599,6 +706,7 @@ function mousePressed() {
 function mouseDragged() {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   if (currentMode === 0) {
+    if (calendarViewMode === 'month') return;
     if (dragAction === 0) return;
     let globalY = mouseY - CONTROL_H - DATE_H - scrollY;
     let rawTime = globalY / HOUR_H; let snapTime = snapTo15Min(rawTime);
@@ -626,15 +734,9 @@ function mouseDragged() {
 
 function mouseReleased() {
   if (currentMode === 0) {
+    if (calendarViewMode === 'month') return;
     if (dragAction === 1 && creatingEvent) {
-      events.push(creatingEvent); selectedItem = creatingEvent;
-      // 自動コピー処理 (Plan->Actual)
-      let d = new Date(creatingEvent.dateStr); d.setHours(0,0,0,0);
-      let today = new Date(); today.setHours(0,0,0,0);
-      if (creatingEvent.type === 0 && d <= today) {
-        let copy = new Event(creatingEvent.dateStr, creatingEvent.start, creatingEvent.duration, creatingEvent.title, creatingEvent.colorIdx, 1);
-        copy.memo = creatingEvent.memo; events.push(copy);
-      }
+      addEventWithAutoActual(creatingEvent); selectedItem = creatingEvent;
       openModal(selectedItem, 'event'); creatingEvent = null;
     }
     dragAction = 0; saveData();
@@ -654,6 +756,7 @@ function mouseWheel(event) {
   if (document.getElementById('modal-overlay').style.display === 'flex') return;
   let d = event.deltaY;
   if (currentMode === 0) {
+    if (calendarViewMode === 'month') return false;
     scrollY -= d;
     let maxH = 24 * HOUR_H; let viewH = height - CONTROL_H - DATE_H;
     if (scrollY > 0) scrollY = 0; if (scrollY < viewH - maxH) scrollY = viewH - maxH;
@@ -778,6 +881,7 @@ function saveData() {
   queueSupabaseSave();
 }
 function moveDate(days) { viewStartDate.setDate(viewStartDate.getDate() + days); }
+function moveMonth(months) { viewStartDate.setMonth(viewStartDate.getMonth() + months); }
 function getDayOffset(date) { let diff = date - viewStartDate; return Math.floor(diff / (1000 * 60 * 60 * 24)); }
 function isSameDate(d1, d2) { return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate(); }
 function isPastOrToday(d) { let today = new Date(); today.setHours(0,0,0,0); d.setHours(0,0,0,0); return d <= today; }
@@ -788,7 +892,87 @@ function parseTimeInput(str) { let parts = str.split(':'); if (parts.length === 
 function snapTo15Min(val) { return Math.round(val / 0.25) * 0.25; }
 function removeFromAllLists(t) { backlogTasks = backlogTasks.filter(x => x !== t); doingTasks = doingTasks.filter(x => x !== t); doneTasks = doneTasks.filter(x => x !== t); }
 function getDayName(i) { return ['日','月','火','水','木','金','土'][i]; }
-function updateCursor() { if (showModal) { cursor(ARROW); return; } if (currentMode === 0) { if (dragAction === 2) cursor(MOVE); else if (dragAction >= 3) cursor(HAND); else cursor(ARROW); } else { cursor(isTaskDragging ? MOVE : ARROW); } }
+function updateCursor() { if (showModal) { cursor(ARROW); return; } if (currentMode === 0) { if (calendarViewMode === 'month') cursor(ARROW); else if (dragAction === 2) cursor(MOVE); else if (dragAction >= 3) cursor(HAND); else cursor(ARROW); } else { cursor(isTaskDragging ? MOVE : ARROW); } }
+
+function addEventWithAutoActual(eventItem) {
+  events.push(eventItem);
+  let d = new Date(eventItem.dateStr);
+  d.setHours(0, 0, 0, 0);
+  let today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (eventItem.type === 0 && d <= today) {
+    const hasActual = events.some(e => e !== eventItem && e.type === 1 && e.dateStr === eventItem.dateStr && e.title === eventItem.title && Math.abs(e.start - eventItem.start) < 0.001);
+    if (!hasActual) {
+      let copy = new Event(eventItem.dateStr, eventItem.start, eventItem.duration, eventItem.title, eventItem.colorIdx, 1);
+      copy.memo = eventItem.memo;
+      events.push(copy);
+    }
+  }
+}
+
+function getEventsByDate(dateStr) {
+  return events
+    .filter(e => e.dateStr === dateStr)
+    .sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return a.type - b.type;
+    });
+}
+
+function getMonthGridMeta() {
+  const weekHeaderH = 34;
+  const cellW = width / 7;
+  const cellH = (height - CONTROL_H - weekHeaderH) / 6;
+  const monthStart = new Date(viewStartDate.getFullYear(), viewStartDate.getMonth(), 1);
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+  return { weekHeaderH, cellW, cellH, monthStart, gridStart };
+}
+
+function getMonthEventHit(mouseXPos, mouseYPos) {
+  const meta = getMonthGridMeta();
+  const localY = mouseYPos - CONTROL_H;
+  if (localY < meta.weekHeaderH) return null;
+  const col = Math.floor(mouseXPos / meta.cellW);
+  const row = Math.floor((localY - meta.weekHeaderH) / meta.cellH);
+  if (col < 0 || col > 6 || row < 0 || row > 5) return null;
+  const idx = row * 7 + col;
+  const dayDate = new Date(meta.gridStart);
+  dayDate.setDate(meta.gridStart.getDate() + idx);
+  const dateStr = formatDateISO(dayDate);
+  const dayEvents = getEventsByDate(dateStr);
+
+  const innerY = localY - (meta.weekHeaderH + row * meta.cellH);
+  if (innerY < 30) return { dateStr, event: null, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
+
+  const chipIdx = Math.floor((innerY - 30) / 18);
+  const maxRows = Math.max(0, Math.floor((meta.cellH - 34) / 18));
+  if (chipIdx >= 0 && chipIdx < Math.min(dayEvents.length, maxRows)) {
+    return { dateStr, event: dayEvents[chipIdx], inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
+  }
+  return { dateStr, event: null, inCurrentMonth: dayDate.getMonth() === meta.monthStart.getMonth() };
+}
+
+function handleMonthViewClick() {
+  const hit = getMonthEventHit(mouseX, mouseY);
+  if (!hit) return;
+  if (hit.event) {
+    selectedItem = hit.event;
+    openModal(hit.event, 'event');
+    return;
+  }
+  // 月外セルはナビゲーション扱いにする
+  if (!hit.inCurrentMonth) {
+    viewStartDate = new Date(hit.dateStr);
+    viewStartDate.setDate(1);
+    return;
+  }
+  let newEvent = new Event(hit.dateStr, 9, 1.0, '新規予定', 0, 0);
+  addEventWithAutoActual(newEvent);
+  selectedItem = newEvent;
+  saveData();
+  openModal(newEvent, 'event');
+}
 
 function createSnapshot() {
   return {
