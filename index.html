@@ -39,6 +39,40 @@
     .btn-close { background: #E5E7EB; color: #1F2937; }
     .btn-delete { background: #FEE2E2; color: #EF4444; }
     #file-input { display: none; }
+    #ai-image-input { display: none; }
+
+    /* AI取込モーダル */
+    #ai-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1100; justify-content: center; align-items: center; }
+    .ai-modal-content { background: white; width: 520px; max-height: 80vh; display: flex; flex-direction: column; padding: 24px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+    .ai-modal-title { margin: 0 0 4px 0; font-size: 18px; color: #1F2937; display: flex; align-items: center; gap: 8px; }
+    .ai-modal-sub { font-size: 12px; color: #6B7280; margin-bottom: 16px; }
+    .ai-badge { background: #4F46E5; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px; }
+    .ai-drop-zone { border: 2px dashed #C7D2FE; border-radius: 10px; padding: 24px; text-align: center; color: #6366F1; cursor: pointer; transition: 0.15s; background: #F5F3FF; }
+    .ai-drop-zone:hover { background: #EEF2FF; border-color: #6366F1; }
+    .ai-drop-zone.has-file { background: #ECFDF5; border-color: #10B981; color: #059669; }
+    .ai-api-key-wrap { margin-top: 14px; }
+    .ai-api-key-wrap label { display: block; font-size: 12px; color: #6B7280; margin-bottom: 4px; }
+    .ai-api-key-wrap input { width: 100%; padding: 8px; border: 1px solid #E5E7EB; border-radius: 6px; font-size: 13px; box-sizing: border-box; font-family: monospace; }
+    .ai-api-hint { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
+    .ai-api-hint a { color: #6366F1; }
+    .ai-loading { text-align: center; padding: 40px 20px; color: #4F46E5; }
+    .ai-loading .spinner { display: inline-block; width: 36px; height: 36px; border: 4px solid #E0E7FF; border-top-color: #4F46E5; border-radius: 50%; animation: ai-spin 0.8s linear infinite; }
+    @keyframes ai-spin { to { transform: rotate(360deg); } }
+    .ai-summary { background: #EEF2FF; color: #4F46E5; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px; font-weight: bold; }
+    .ai-extracted-list { overflow-y: auto; flex: 1; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px; margin-bottom: 12px; max-height: 300px; }
+    .ai-event-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #1F2937; }
+    .ai-event-row:hover { background: #F9FAFB; }
+    .ai-event-row.exists { color: #9CA3AF; background: #F9FAFB; }
+    .ai-event-row .ai-date { font-weight: bold; min-width: 78px; color: #4F46E5; }
+    .ai-event-row.exists .ai-date { color: #9CA3AF; }
+    .ai-event-row .ai-time { min-width: 90px; font-variant-numeric: tabular-nums; color: #6B7280; font-size: 12px; }
+    .ai-event-row .ai-title { flex: 1; }
+    .ai-event-row .ai-exists-tag { font-size: 10px; color: #9CA3AF; background: #E5E7EB; padding: 2px 6px; border-radius: 6px; }
+    .ai-modal-actions { display: flex; justify-content: space-between; margin-top: 8px; }
+    .ai-btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
+    .ai-btn-primary { background: #4F46E5; color: white; }
+    .ai-btn-primary:disabled { background: #C7D2FE; cursor: not-allowed; }
+    .ai-btn-secondary { background: #E5E7EB; color: #1F2937; }
   </style>
 </head>
 <body>
@@ -54,6 +88,47 @@
   </div>
 
   <input type="file" id="file-input" accept=".ics">
+  <input type="file" id="ai-image-input" accept="image/*">
+
+  <!-- AI画像取込モーダル -->
+  <div id="ai-modal-overlay">
+    <div class="ai-modal-content">
+      <h3 class="ai-modal-title"><span class="ai-badge">AI</span>カレンダー画像から予定を自動取込</h3>
+      <div class="ai-modal-sub">スクリーンショットを解析し、既存にない予定だけを追加します</div>
+
+      <!-- Step 1: アップロード -->
+      <div id="ai-step-upload">
+        <div class="ai-drop-zone" id="ai-drop-zone" onclick="document.getElementById('ai-image-input').click()">
+          <div id="ai-drop-zone-text">📷 画像をクリックで選択</div>
+        </div>
+        <div class="ai-api-key-wrap">
+          <label>Gemini APIキー <span style="color:#9CA3AF;">(保存されます)</span></label>
+          <input type="password" id="ai-api-key" placeholder="AIzaSy...">
+          <div class="ai-api-hint">取得: <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></div>
+        </div>
+        <div class="ai-modal-actions">
+          <button class="ai-btn ai-btn-secondary" onclick="closeAIImportModal()">キャンセル</button>
+          <button class="ai-btn ai-btn-primary" id="ai-analyze-btn" onclick="startAIAnalysis()">解析開始</button>
+        </div>
+      </div>
+
+      <!-- Step 2: ローディング -->
+      <div id="ai-loading" class="ai-loading" style="display:none;">
+        <div class="spinner"></div>
+        <div style="margin-top:12px;">画像を解析中...</div>
+      </div>
+
+      <!-- Step 3: プレビュー -->
+      <div id="ai-step-preview" style="display:none; flex:1; display:flex; flex-direction:column; min-height:0;">
+        <div class="ai-summary" id="ai-summary"></div>
+        <div class="ai-extracted-list" id="ai-extracted-list"></div>
+        <div class="ai-modal-actions">
+          <button class="ai-btn ai-btn-secondary" onclick="closeAIImportModal()">キャンセル</button>
+          <button class="ai-btn ai-btn-primary" onclick="confirmAddEvents()">選択した予定を追加</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="modal-overlay">
     <div class="modal-content">
@@ -355,7 +430,8 @@ function setupButtons() {
   addButton("Month", -90, 15, 60, 30, () => { calendarViewMode = 'month'; }, true);
   addButton("ICS出力", -310, 15, 80, 30, exportICS, true, '#10B981');
   addButton("ICS読込", -400, 15, 80, 30, () => document.getElementById('file-input').click(), true, '#3B82F6');
-  addButton("モード切替", -530, 15, 120, 30, toggleMode, true, '#6366F1');
+  addButton("AI画像読込", -510, 15, 100, 30, openAIImportModal, true, '#8B5CF6');
+  addButton("モード切替", -640, 15, 120, 30, toggleMode, true, '#6366F1');
 }
 function addButton(l, x, y, w, h, act, ar=false, col='#E5E7EB') {
   buttons.push(new Button(l, x, y, w, h, act, ar, col));
@@ -1298,6 +1374,236 @@ function parseICSDate(str) {
   let h = 0, min = 0;
   if (str.includes('T')) { let tPart = str.split('T')[1]; h = parseInt(tPart.substring(0,2)); min = parseInt(tPart.substring(2,4)); }
   return { d: new Date(y,m,d), h: h, m: min };
+}
+
+// =========================================================
+//  6. AI画像解析によるスケジュール自動取込
+// =========================================================
+const GEMINI_API_KEY_STORAGE = 'gemini_api_key_v1';
+const GEMINI_MODEL = 'gemini-2.0-flash';
+let aiSelectedFile = null;
+let aiExtractedItems = [];
+
+function openAIImportModal() {
+  const modal = document.getElementById('ai-modal-overlay');
+  modal.style.display = 'flex';
+  document.getElementById('ai-step-upload').style.display = 'block';
+  document.getElementById('ai-step-preview').style.display = 'none';
+  document.getElementById('ai-loading').style.display = 'none';
+  const savedKey = localStorage.getItem(GEMINI_API_KEY_STORAGE) || '';
+  document.getElementById('ai-api-key').value = savedKey;
+  aiSelectedFile = null;
+  document.getElementById('ai-image-input').value = '';
+  document.getElementById('ai-drop-zone').classList.remove('has-file');
+  document.getElementById('ai-drop-zone-text').innerText = '📷 画像をクリックで選択';
+}
+
+function closeAIImportModal() {
+  document.getElementById('ai-modal-overlay').style.display = 'none';
+  aiSelectedFile = null;
+}
+
+document.getElementById('ai-image-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  aiSelectedFile = file;
+  document.getElementById('ai-drop-zone').classList.add('has-file');
+  document.getElementById('ai-drop-zone-text').innerText = '✅ ' + file.name + ' (クリックで変更)';
+});
+
+async function startAIAnalysis() {
+  const apiKey = document.getElementById('ai-api-key').value.trim();
+  if (!apiKey) { alert('Gemini APIキーを入力してください'); return; }
+  if (!aiSelectedFile) { alert('画像を選択してください'); return; }
+  localStorage.setItem(GEMINI_API_KEY_STORAGE, apiKey);
+
+  document.getElementById('ai-step-upload').style.display = 'none';
+  document.getElementById('ai-loading').style.display = 'block';
+
+  try {
+    const base64 = await fileToBase64(aiSelectedFile);
+    const extracted = await callGeminiVision(apiKey, base64, aiSelectedFile.type || 'image/png');
+    showExtractedPreview(extracted);
+  } catch (err) {
+    console.error(err);
+    alert('解析エラー: ' + (err.message || err));
+    document.getElementById('ai-loading').style.display = 'none';
+    document.getElementById('ai-step-upload').style.display = 'block';
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function callGeminiVision(apiKey, base64Data, mimeType) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const prompt = `この画像はスケジュール表/カレンダーのスクリーンショットです。
+含まれる全ての予定を抽出して、必ず以下のJSON形式「のみ」で回答してください。説明文・コードブロック・他の文字は絶対に含めないでください。
+
+出力フォーマット:
+{"events":[{"date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","title":"予定名"}]}
+
+制約:
+- 日付が「4/23」のように年がない場合は ${currentYear} 年として扱う。ただし現在が${currentMonth}月で画像の月が大きく過去なら翌年とみなす。
+- 時刻は24時間表記の "HH:MM"
+- タイトルは絵文字・🔒・🔁・⚠️・📗・🎾などの装飾アイコンを全て除去し、純粋なテキストのみ
+- 同じ日に複数予定があればそれぞれ別エントリとして出力
+- 読み取れない予定は出力しない
+- 全日予定や時刻不明な予定はスキップ`;
+
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: base64Data } }
+        ]
+      }],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error('API応答エラー (' + res.status + '): ' + txt.substring(0, 200));
+  }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('JSONが取得できませんでした: ' + text.substring(0, 200));
+    parsed = JSON.parse(m[0]);
+  }
+  const list = Array.isArray(parsed.events) ? parsed.events : [];
+  return list.filter(ev => ev && ev.date && ev.start && ev.end && ev.title);
+}
+
+function showExtractedPreview(extracted) {
+  document.getElementById('ai-loading').style.display = 'none';
+  const previewEl = document.getElementById('ai-step-preview');
+  previewEl.style.display = 'flex';
+
+  const list = document.getElementById('ai-extracted-list');
+  list.innerHTML = '';
+
+  const items = extracted
+    .map(ev => ({ ...ev, title: (ev.title || '').trim(), exists: eventAlreadyExists(ev) }))
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+
+  aiExtractedItems = items;
+
+  const newCount = items.filter(i => !i.exists).length;
+  const existCount = items.length - newCount;
+  document.getElementById('ai-summary').innerText =
+    `${items.length}件検出  /  新規 ${newCount}件  /  既存 ${existCount}件`;
+
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.padding = '20px';
+    empty.style.textAlign = 'center';
+    empty.style.color = '#9CA3AF';
+    empty.innerText = '予定を読み取れませんでした';
+    list.appendChild(empty);
+    return;
+  }
+
+  items.forEach((ev, idx) => {
+    const row = document.createElement('label');
+    row.className = 'ai-event-row' + (ev.exists ? ' exists' : '');
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !ev.exists;
+    checkbox.disabled = ev.exists;
+    checkbox.dataset.idx = idx;
+
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'ai-date';
+    dateSpan.innerText = ev.date.replace(/^\d{4}-/, '').replace('-', '/');
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'ai-time';
+    timeSpan.innerText = `${ev.start}–${ev.end}`;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'ai-title';
+    titleSpan.innerText = ev.title;
+
+    row.appendChild(checkbox);
+    row.appendChild(dateSpan);
+    row.appendChild(timeSpan);
+    row.appendChild(titleSpan);
+
+    if (ev.exists) {
+      const tag = document.createElement('span');
+      tag.className = 'ai-exists-tag';
+      tag.innerText = '既存';
+      row.appendChild(tag);
+    }
+
+    list.appendChild(row);
+  });
+}
+
+function eventAlreadyExists(ev) {
+  const startVal = parseTimeInput(ev.start);
+  const normTitle = (ev.title || '').trim();
+  return events.some(e =>
+    e.type === 0 &&
+    e.dateStr === ev.date &&
+    Math.abs(e.start - startVal) < 0.01 &&
+    (e.title || '').trim() === normTitle
+  );
+}
+
+function confirmAddEvents() {
+  const list = document.getElementById('ai-extracted-list');
+  const checkboxes = list.querySelectorAll('input[type="checkbox"]');
+  let added = 0;
+  checkboxes.forEach(cb => {
+    if (!cb.checked || cb.disabled) return;
+    const ev = aiExtractedItems[parseInt(cb.dataset.idx)];
+    if (!ev) return;
+    const startVal = parseTimeInput(ev.start);
+    const endVal = parseTimeInput(ev.end);
+    let duration = endVal - startVal;
+    if (duration <= 0) duration = 0.5;
+    if (startVal < 0 || startVal >= 24) return;
+
+    const colorIdx = 4; // 紫 = AI取込を識別しやすく
+    const newEv = new Event(ev.date, startVal, duration, ev.title, colorIdx, 0);
+    newEv.memo = '🤖 AI画像取込で追加';
+    addEventWithAutoActual(newEv);
+    added++;
+  });
+  saveData();
+  closeAIImportModal();
+  if (added > 0) {
+    alert(added + '件の予定を追加しました');
+  } else {
+    alert('追加する予定がありませんでした');
+  }
 }
 </script>
 </body>
